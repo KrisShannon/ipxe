@@ -84,6 +84,7 @@ SRCDIRS		+= drivers/net/sfc
 SRCDIRS		+= drivers/net/marvell
 SRCDIRS		+= drivers/block
 SRCDIRS		+= drivers/nvs
+SRCDIRS		+= drivers/ipmi
 SRCDIRS		+= drivers/bitbash
 SRCDIRS		+= drivers/gpio
 SRCDIRS		+= drivers/infiniband

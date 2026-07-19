@@ -94,6 +94,7 @@ FILE_SECBOOT ( PERMITTED );
 #define ERRFILE_efi_disklog	       ( ERRFILE_CORE | 0x00350000 )
 #define ERRFILE_datauri		       ( ERRFILE_CORE | 0x00360000 )
 #define ERRFILE_dmesg		       ( ERRFILE_CORE | 0x00370000 )
+#define ERRFILE_ipmi		       ( ERRFILE_CORE | 0x00380000 )
 
 #define ERRFILE_eisa		     ( ERRFILE_DRIVER | 0x00000000 )
 #define ERRFILE_isa		     ( ERRFILE_DRIVER | 0x00010000 )
@@ -246,6 +247,7 @@ FILE_SECBOOT ( PERMITTED );
 #define ERRFILE_dwmac		     ( ERRFILE_DRIVER | 0x00dc0000 )
 #define ERRFILE_dwusb		     ( ERRFILE_DRIVER | 0x00dd0000 )
 #define ERRFILE_dwgpio		     ( ERRFILE_DRIVER | 0x00de0000 )
+#define ERRFILE_ipmi_kcs	     ( ERRFILE_DRIVER | 0x00df0000 )
 
 #define ERRFILE_aoe			( ERRFILE_NET | 0x00000000 )
 #define ERRFILE_arp			( ERRFILE_NET | 0x00010000 )
