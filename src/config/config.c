@@ -380,6 +380,15 @@ REQUIRE_OBJECT ( acpi_settings );
 #ifdef EFI_SETTINGS
 REQUIRE_OBJECT ( efi_settings );
 #endif
+#ifdef DCMI_SETTINGS
+REQUIRE_OBJECT ( dcmi );
+/* The KCS system interface driver requires raw hardware access,
+ * which is not possible under Linux userspace.
+ */
+#ifndef PLATFORM_linux
+REQUIRE_OBJECT ( ipmi_kcs );
+#endif
+#endif
 
 /*
  * Drag in selected keyboard map

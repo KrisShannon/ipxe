@@ -16,6 +16,7 @@ FILE_SECBOOT ( PERMITTED );
 #define ACPI_SETTINGS		/* ACPI settings */
 #define PCI_SETTINGS		/* PCI device settings */
 #define USB_SETTINGS		/* USB device settings */
+//#define DCMI_SETTINGS		/* IPMI DCMI settings (e.g. asset tag) */
 
 /* Settings sources supported only on EFI platforms */
 #if defined ( PLATFORM_efi )
