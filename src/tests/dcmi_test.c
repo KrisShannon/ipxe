@@ -48,6 +48,27 @@ static uint8_t mock_tag[DCMI_ASSET_TAG_MAX];
 /** Mock BMC asset tag length */
 static size_t mock_tag_len;
 
+/** Mock BMC LAN channel number */
+#define MOCK_LAN_CHANNEL 2
+
+/** Highest mock BMC LAN parameter number */
+#define MOCK_LAN_PARAM_MAX 20
+
+/** Mock BMC LAN parameter storage */
+static uint8_t mock_lan[ MOCK_LAN_PARAM_MAX + 1 ][8] = {
+	[3] = { 192, 168, 10, 20 },
+	[4] = { 0x02 },
+	[5] = { 0x00, 0x25, 0x90, 0xab, 0xcd, 0xef },
+	[6] = { 255, 255, 255, 0 },
+	[12] = { 192, 168, 10, 1 },
+	[20] = { 0x00, 0x00 },
+};
+
+/** Mock BMC LAN parameter lengths */
+static uint8_t mock_lan_len[ MOCK_LAN_PARAM_MAX + 1 ] = {
+	[0] = 1, [3] = 4, [4] = 1, [5] = 6, [6] = 4, [12] = 4, [20] = 2,
+};
+
 /**
  * Open mock transport
  *
@@ -90,6 +111,55 @@ static int mock_xfer ( const struct ipmi_request *request, size_t request_len,
 
 		memcpy ( response->data, &mock_id, sizeof ( mock_id ) );
 		len += sizeof ( mock_id );
+
+	} else if ( ( netfn == IPMI_NETFN_APP ) && ( data_len >= 1 ) &&
+		    ( request->command == IPMI_GET_CHANNEL_INFO ) ) {
+
+		struct ipmi_channel_info info;
+
+		memset ( &info, 0, sizeof ( info ) );
+		info.channel = request->data[0];
+		if ( info.channel == MOCK_LAN_CHANNEL ) {
+			info.medium = IPMI_MEDIUM_LAN;
+		} else if ( info.channel <= 1 ) {
+			info.medium = 0x01; /* IPMB */
+		} else {
+			response->code = 0xcc; /* Invalid data field */
+			return len;
+		}
+		memcpy ( response->data, &info, sizeof ( info ) );
+		len += sizeof ( info );
+
+	} else if ( ( netfn == IPMI_NETFN_TRANSPORT ) && ( data_len >= 4 ) &&
+		    ( request->command == IPMI_GET_LAN_CONFIG ) ) {
+
+		unsigned int param = request->data[1];
+
+		if ( ( request->data[0] != MOCK_LAN_CHANNEL ) ||
+		     ( param > MOCK_LAN_PARAM_MAX ) ||
+		     ( ! mock_lan_len[param] ) ) {
+			response->code = 0x80; /* Parameter not supported */
+			return len;
+		}
+		response->data[0] = 0x11; /* Parameter revision */
+		memcpy ( &response->data[1], mock_lan[param],
+			 mock_lan_len[param] );
+		len += ( 1 + mock_lan_len[param] );
+
+	} else if ( ( netfn == IPMI_NETFN_TRANSPORT ) && ( data_len >= 2 ) &&
+		    ( request->command == IPMI_SET_LAN_CONFIG ) ) {
+
+		unsigned int param = request->data[1];
+		size_t param_len = ( data_len - 2 );
+
+		if ( ( request->data[0] != MOCK_LAN_CHANNEL ) ||
+		     ( param > MOCK_LAN_PARAM_MAX ) ||
+		     ( ! mock_lan_len[param] ) ||
+		     ( param_len != mock_lan_len[param] ) ) {
+			response->code = 0x80; /* Parameter not supported */
+			return len;
+		}
+		memcpy ( mock_lan[param], &request->data[2], param_len );
 
 	} else if ( ( netfn == IPMI_NETFN_GROUP ) && ( data_len >= 3 ) &&
 		    ( request->data[0] == DCMI_GROUP_ID ) &&
@@ -172,15 +242,15 @@ static void dcmi_okx ( struct settings *settings, const char *tag,
 	dcmi_okx ( settings, tag, __FILE__, __LINE__ )
 
 /**
- * Report an asset tag key lookup test result
+ * Report a named setting fetch test result
  *
  * @v name		Qualified setting name (e.g. "dcmi/key")
- * @v expected		Expected value, or NULL if lookup should fail
+ * @v expected		Expected value, or NULL if fetching should fail
  * @v file		Test code file
  * @v line		Test code line
  */
-static void dcmi_key_okx ( const char *name, const char *expected,
-			   const char *file, unsigned int line ) {
+static void fetchf_name_okx ( const char *name, const char *expected,
+			      const char *file, unsigned int line ) {
 	char tmp[ strlen ( name ) + 1 /* NUL */ ];
 	char value[ DCMI_ASSET_TAG_MAX + 1 /* NUL */ ];
 	struct settings *settings;
@@ -202,8 +272,35 @@ static void dcmi_key_okx ( const char *name, const char *expected,
 		okx ( len < 0, file, line );
 	}
 }
+#define fetchf_name_ok( name, expected ) \
+	fetchf_name_okx ( name, expected, __FILE__, __LINE__ )
 #define dcmi_key_ok( name, expected ) \
-	dcmi_key_okx ( name, expected, __FILE__, __LINE__ )
+	fetchf_name_okx ( name, expected, __FILE__, __LINE__ )
+
+/**
+ * Report a named setting store test result
+ *
+ * @v name		Qualified setting name (e.g. "bmc/ipaddr")
+ * @v value		Formatted value to store
+ * @v file		Test code file
+ * @v line		Test code line
+ */
+static void storef_name_okx ( const char *name, const char *value,
+			      const char *file, unsigned int line ) {
+	char tmp[ strlen ( name ) + 1 /* NUL */ ];
+	struct settings *settings;
+	struct setting setting;
+
+	/* Look up setting via its qualified name */
+	strcpy ( tmp, name );
+	okx ( parse_setting_name ( tmp, find_child_settings, &settings,
+				   &setting ) == 0, file, line );
+
+	/* Store value */
+	okx ( storef_setting ( settings, &setting, value ) == 0, file, line );
+}
+#define storef_name_ok( name, value ) \
+	storef_name_okx ( name, value, __FILE__, __LINE__ )
 
 /**
  * Perform DCMI self-tests
@@ -280,3 +377,61 @@ struct self_test dcmi_test __self_test = {
 	.name = "dcmi",
 	.exec = dcmi_test_exec,
 };
+
+/**
+ * Perform BMC LAN settings self-tests
+ *
+ */
+static void bmc_test_exec ( void ) {
+	struct settings *settings;
+
+	/* Locate settings block (registered at initialisation) */
+	settings = find_settings ( "bmc" );
+	ok ( settings != NULL );
+	if ( ! settings )
+		return;
+
+	/* Verify fetching of named parameters */
+	fetchf_name_ok ( "bmc/ipaddr", "192.168.10.20" );
+	fetchf_name_ok ( "bmc/subnet", "255.255.255.0" );
+	fetchf_name_ok ( "bmc/defgw", "192.168.10.1" );
+	fetchf_name_ok ( "bmc/macaddr", "00:25:90:ab:cd:ef" );
+	fetchf_name_ok ( "bmc/ipsrc", "2" );
+
+	/* Verify storing of named parameters */
+	storef_name_ok ( "bmc/ipaddr", "10.1.2.3" );
+	ok ( memcmp ( mock_lan[3], "\x0a\x01\x02\x03", 4 ) == 0 );
+	fetchf_name_ok ( "bmc/ipaddr", "10.1.2.3" );
+	storef_name_ok ( "bmc/ipsrc", "1" );
+	ok ( mock_lan[4][0] == 0x01 );
+
+	/* Verify numeric parameter access */
+	fetchf_name_ok ( "bmc/12:ipv4", "192.168.10.1" );
+	storef_name_ok ( "bmc/12:ipv4", "10.1.2.254" );
+	fetchf_name_ok ( "bmc/defgw", "10.1.2.254" );
+
+	/* Verify VLAN ID translation */
+	fetchf_name_ok ( "bmc/vlanid", "0" );
+	storef_name_ok ( "bmc/vlanid", "1234" );
+	ok ( mock_lan[20][0] == 0xd2 );
+	ok ( mock_lan[20][1] == 0x84 );
+	fetchf_name_ok ( "bmc/vlanid", "1234" );
+	storef_name_ok ( "bmc/vlanid", "0" );
+	ok ( mock_lan[20][0] == 0x00 );
+	ok ( mock_lan[20][1] == 0x00 );
+	fetchf_name_ok ( "bmc/vlanid", "0" );
+
+	/* Verify unknown and unsupported parameters */
+	fetchf_name_ok ( "bmc/bogus", NULL );
+	fetchf_name_ok ( "bmc/7", NULL );
+}
+
+/** BMC LAN settings self-test */
+struct self_test bmc_test __self_test = {
+	.name = "bmc",
+	.exec = bmc_test_exec,
+};
+
+/* Drag in objects under test that are not referenced by symbol */
+REQUIRING_SYMBOL ( dcmi_test );
+REQUIRE_OBJECT ( ipmi_lan );

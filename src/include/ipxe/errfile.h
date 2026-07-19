@@ -96,6 +96,7 @@ FILE_SECBOOT ( PERMITTED );
 #define ERRFILE_dmesg		       ( ERRFILE_CORE | 0x00370000 )
 #define ERRFILE_ipmi		       ( ERRFILE_CORE | 0x00380000 )
 #define ERRFILE_dcmi		       ( ERRFILE_CORE | 0x00390000 )
+#define ERRFILE_ipmi_lan	       ( ERRFILE_CORE | 0x003a0000 )
 
 #define ERRFILE_eisa		     ( ERRFILE_DRIVER | 0x00000000 )
 #define ERRFILE_isa		     ( ERRFILE_DRIVER | 0x00010000 )

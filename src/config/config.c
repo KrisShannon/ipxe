@@ -395,6 +395,12 @@ REQUIRE_OBJECT ( dcmi );
 REQUIRE_OBJECT ( ipmi_kcs );
 #endif
 #endif
+#ifdef BMC_SETTINGS
+REQUIRE_OBJECT ( ipmi_lan );
+#ifndef PLATFORM_linux
+REQUIRE_OBJECT ( ipmi_kcs );
+#endif
+#endif
 
 /*
  * Drag in selected keyboard map

@@ -17,6 +17,7 @@ FILE_SECBOOT ( PERMITTED );
 #define PCI_SETTINGS		/* PCI device settings */
 #define USB_SETTINGS		/* USB device settings */
 //#define DCMI_SETTINGS		/* IPMI DCMI settings (e.g. asset tag) */
+//#define BMC_SETTINGS		/* IPMI BMC LAN configuration settings */
 
 /* Settings sources supported only on EFI platforms */
 #if defined ( PLATFORM_efi )
