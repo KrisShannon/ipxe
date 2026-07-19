@@ -180,6 +180,51 @@ static int dcmi_applies ( struct settings *settings __unused,
 }
 
 /**
+ * Fetch value of a key within the asset tag
+ *
+ * @v key		Key name
+ * @v data		Buffer to fill with value
+ * @v len		Length of buffer
+ * @ret len		Length of value, or negative error
+ *
+ * Treat the asset tag as a list of space-separated "key=value"
+ * entries, and return the value corresponding to the specified key.
+ */
+static int dcmi_key_read ( const char *key, void *data, size_t len ) {
+	char tag[ DCMI_ASSET_TAG_MAX + 1 /* NUL */ ];
+	size_t key_len = strlen ( key );
+	size_t value_len;
+	char *token;
+	char *next;
+	char *value;
+	int tag_len;
+
+	/* Read asset tag */
+	tag_len = dcmi_asset_tag_read ( tag, DCMI_ASSET_TAG_MAX );
+	if ( tag_len < 0 )
+		return tag_len;
+	tag[tag_len] = '\0';
+
+	/* Search for "<key>=" at the start of a space-separated token */
+	for ( token = tag ; token ; token = next ) {
+		next = strchr ( token, ' ' );
+		if ( next )
+			*(next++) = '\0';
+		if ( ( strncmp ( token, key, key_len ) == 0 ) &&
+		     ( token[key_len] == '=' ) ) {
+			value = &token[ key_len + 1 ];
+			value_len = strlen ( value );
+			if ( len > value_len )
+				len = value_len;
+			memcpy ( data, value, len );
+			return value_len;
+		}
+	}
+
+	return -ENOENT;
+}
+
+/**
  * Fetch value of DCMI setting
  *
  * @v settings		Settings block
@@ -194,6 +239,10 @@ static int dcmi_fetch ( struct settings *settings __unused,
 	/* Handle known settings */
 	if ( setting_cmp ( setting, &dcmi_assettag_setting ) == 0 )
 		return dcmi_asset_tag_read ( data, len );
+
+	/* Treat any other named setting as a key within the asset tag */
+	if ( setting->name && setting->name[0] && ( ! setting->tag ) )
+		return dcmi_key_read ( setting->name, data, len );
 
 	return -ENOENT;
 }

@@ -172,6 +172,40 @@ static void dcmi_okx ( struct settings *settings, const char *tag,
 	dcmi_okx ( settings, tag, __FILE__, __LINE__ )
 
 /**
+ * Report an asset tag key lookup test result
+ *
+ * @v name		Qualified setting name (e.g. "dcmi/key")
+ * @v expected		Expected value, or NULL if lookup should fail
+ * @v file		Test code file
+ * @v line		Test code line
+ */
+static void dcmi_key_okx ( const char *name, const char *expected,
+			   const char *file, unsigned int line ) {
+	char tmp[ strlen ( name ) + 1 /* NUL */ ];
+	char value[ DCMI_ASSET_TAG_MAX + 1 /* NUL */ ];
+	struct settings *settings;
+	struct setting setting;
+	int len;
+
+	/* Look up setting via its qualified name */
+	strcpy ( tmp, name );
+	okx ( parse_setting_name ( tmp, find_child_settings, &settings,
+				   &setting ) == 0, file, line );
+
+	/* Fetch value */
+	len = fetchf_setting ( settings, &setting, NULL, NULL, value,
+			       sizeof ( value ) );
+	if ( expected ) {
+		okx ( len == ( int ) strlen ( expected ), file, line );
+		okx ( strcmp ( value, expected ) == 0, file, line );
+	} else {
+		okx ( len < 0, file, line );
+	}
+}
+#define dcmi_key_ok( name, expected ) \
+	dcmi_key_okx ( name, expected, __FILE__, __LINE__ )
+
+/**
  * Perform DCMI self-tests
  *
  */
@@ -221,12 +255,24 @@ static void dcmi_test_exec ( void ) {
 			      overlong ) != 0 );
 	ok ( mock_tag_len == strlen ( "shorter" ) );
 
+	/* Verify key=value lookups within the asset tag */
+	dcmi_ok ( settings, "env=prod mgmt_vlan=1234 vlan=99 empty= last=x" );
+	dcmi_key_ok ( "dcmi/mgmt_vlan", "1234" );
+	dcmi_key_ok ( "dcmi/env", "prod" );
+	dcmi_key_ok ( "dcmi/vlan", "99" );
+	dcmi_key_ok ( "dcmi/empty", "" );
+	dcmi_key_ok ( "dcmi/last", "x" );
+	dcmi_key_ok ( "dcmi/missing", NULL );
+	dcmi_key_ok ( "dcmi/mgmt", NULL );
+	dcmi_key_ok ( "dcmi/prod", NULL );
+
 	/* Verify clearing the tag */
 	ok ( delete_setting ( settings, &dcmi_assettag_setting ) == 0 );
 	ok ( mock_tag_len == 0 );
 	len = fetch_setting ( settings, &dcmi_assettag_setting, NULL, NULL,
 			      raw, sizeof ( raw ) );
 	ok ( len == 0 );
+	dcmi_key_ok ( "dcmi/mgmt_vlan", NULL );
 }
 
 /** DCMI self-test */
