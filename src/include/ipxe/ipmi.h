@@ -42,14 +42,143 @@ struct ipmi_response {
 /** Extract network function */
 #define IPMI_NETFN( netfn_lun ) ( (netfn_lun) >> 2 )
 
+/** Chassis network function */
+#define IPMI_NETFN_CHASSIS 0x00
+
 /** Application network function */
 #define IPMI_NETFN_APP 0x06
+
+/** Transport network function */
+#define IPMI_NETFN_TRANSPORT 0x0c
 
 /** Group extension network function */
 #define IPMI_NETFN_GROUP 0x2c
 
 /** Get Device ID command */
 #define IPMI_GET_DEVICE_ID 0x01
+
+/** Cold Reset command */
+#define IPMI_COLD_RESET 0x02
+
+/** Warm Reset command */
+#define IPMI_WARM_RESET 0x03
+
+/** Get Channel Info command */
+#define IPMI_GET_CHANNEL_INFO 0x42
+
+/** Get Channel Info response */
+struct ipmi_channel_info {
+	/** Channel number */
+	uint8_t channel;
+	/** Channel medium type */
+	uint8_t medium;
+	/** Channel protocol type */
+	uint8_t protocol;
+	/** Session support */
+	uint8_t session;
+	/** Vendor ID */
+	uint8_t vendor[3];
+	/** Auxiliary channel information */
+	uint8_t aux[2];
+} __attribute__ (( packed ));
+
+/** 802.3 LAN channel medium type */
+#define IPMI_MEDIUM_LAN 0x04
+
+/** Maximum channel number */
+#define IPMI_CHANNEL_MAX 0x0b
+
+/** Get Chassis Status command */
+#define IPMI_GET_CHASSIS_STATUS 0x01
+
+/** Chassis Status system power is on */
+#define IPMI_CHASSIS_POWER_ON 0x01
+
+/** Chassis Control command */
+#define IPMI_CHASSIS_CONTROL 0x02
+
+/** Chassis Control actions */
+#define IPMI_CHASSIS_POWER_DOWN 0x00
+#define IPMI_CHASSIS_POWER_UP 0x01
+#define IPMI_CHASSIS_POWER_CYCLE 0x02
+#define IPMI_CHASSIS_HARD_RESET 0x03
+#define IPMI_CHASSIS_SOFT_SHUTDOWN 0x05
+
+/** Set System Boot Options command */
+#define IPMI_SET_SYSTEM_BOOT_OPTIONS 0x08
+
+/** Boot option parameter: boot flags */
+#define IPMI_BOOT_OPTION_BOOT_FLAGS 0x05
+
+/** Set System Boot Options boot flags request */
+struct ipmi_boot_flags_request {
+	/** Parameter selector */
+	uint8_t param;
+	/** Boot flags validity */
+	uint8_t valid;
+	/** Boot device selector */
+	uint8_t device;
+	/** BIOS verbosity and console redirection */
+	uint8_t bios;
+	/** BIOS overrides */
+	uint8_t overrides;
+	/** Device instance selector */
+	uint8_t instance;
+} __attribute__ (( packed ));
+
+/** Boot flags are valid */
+#define IPMI_BOOT_FLAGS_VALID 0x80
+
+/** Boot flags apply to all future boots (rather than the next boot only) */
+#define IPMI_BOOT_FLAGS_PERSISTENT 0x40
+
+/** Boot flags apply to a UEFI boot */
+#define IPMI_BOOT_FLAGS_UEFI 0x20
+
+/** Construct boot device selector */
+#define IPMI_BOOT_DEVICE( device ) ( (device) << 2 )
+
+/** Boot device selectors */
+#define IPMI_BOOT_DEVICE_NONE 0x0
+#define IPMI_BOOT_DEVICE_PXE 0x1
+#define IPMI_BOOT_DEVICE_DISK 0x2
+#define IPMI_BOOT_DEVICE_CDROM 0x5
+#define IPMI_BOOT_DEVICE_BIOS 0x6
+#define IPMI_BOOT_DEVICE_FLOPPY 0xf
+
+/** Set LAN Configuration Parameters command */
+#define IPMI_SET_LAN_CONFIG 0x01
+
+/** Get LAN Configuration Parameters command */
+#define IPMI_GET_LAN_CONFIG 0x02
+
+/** LAN parameter: set in progress */
+#define IPMI_LAN_PARAM_SET_IN_PROGRESS 0
+
+/** Set in progress states */
+#define IPMI_LAN_SET_COMPLETE 0x00
+#define IPMI_LAN_SET_IN_PROGRESS 0x01
+
+/** LAN parameter: IP address */
+#define IPMI_LAN_PARAM_IP 3
+
+/** LAN parameter: IP address source */
+#define IPMI_LAN_PARAM_IP_SOURCE 4
+
+/** LAN parameter: MAC address */
+#define IPMI_LAN_PARAM_MAC 5
+
+/** LAN parameter: subnet mask */
+#define IPMI_LAN_PARAM_NETMASK 6
+
+/** LAN parameter: default gateway address */
+#define IPMI_LAN_PARAM_GATEWAY 12
+
+/** LAN parameter: VLAN ID */
+#define IPMI_LAN_PARAM_VLAN 20
+
+/** VLAN ID is enabled */
+#define IPMI_LAN_VLAN_ENABLED 0x80
 
 /** Get Device ID response */
 struct ipmi_device_id {

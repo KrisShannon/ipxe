@@ -264,6 +264,12 @@ REQUIRE_OBJECT ( vlan_cmd );
 #ifdef POWEROFF_CMD
 REQUIRE_OBJECT ( poweroff_cmd );
 #endif
+#ifdef IPMI_CMD
+REQUIRE_OBJECT ( ipmi_cmd );
+#ifndef PLATFORM_linux
+REQUIRE_OBJECT ( ipmi_kcs );
+#endif
+#endif
 #ifdef REBOOT_CMD
 REQUIRE_OBJECT ( reboot_cmd );
 #endif
