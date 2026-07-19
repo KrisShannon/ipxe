@@ -186,6 +186,45 @@ struct smbios_enclosure_information {
 /** SMBIOS OEM strings structure type */
 #define SMBIOS_TYPE_OEM_STRINGS 11
 
+/** SMBIOS IPMI device information structure */
+struct smbios_ipmi_information {
+	/** SMBIOS structure header */
+	struct smbios_header header;
+	/** Interface type */
+	uint8_t interface;
+	/** IPMI specification revision */
+	uint8_t revision;
+	/** I2C target address */
+	uint8_t i2c_address;
+	/** NV storage device address */
+	uint8_t nv_address;
+	/** Base address */
+	uint64_t base_address;
+	/** Base address modifier and interrupt information */
+	uint8_t modifier;
+	/** Interrupt number */
+	uint8_t interrupt;
+} __attribute__ (( packed ));
+
+/** SMBIOS IPMI device information structure type */
+#define SMBIOS_TYPE_IPMI_INFORMATION 38
+
+/** SMBIOS IPMI KCS interface type */
+#define SMBIOS_IPMI_INTERFACE_KCS 0x01
+
+/** SMBIOS IPMI base address is in I/O space (rather than memory space) */
+#define SMBIOS_IPMI_BASE_IO 0x01
+
+/** SMBIOS IPMI register spacing
+ *
+ * Registers are spaced at successive 1, 4, or 16 byte boundaries.
+ */
+#define SMBIOS_IPMI_SPACING( modifier ) \
+	( 1 << ( 2 * ( ( (modifier) >> 6 ) & 0x3 ) ) )
+
+/** SMBIOS IPMI base address least significant bit */
+#define SMBIOS_IPMI_LSB( modifier ) ( ( (modifier) >> 4 ) & 0x1 )
+
 /** SMBIOS end of table type */
 #define SMBIOS_TYPE_END 127
 
