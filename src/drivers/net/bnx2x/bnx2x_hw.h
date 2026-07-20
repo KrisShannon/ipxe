@@ -405,6 +405,13 @@ extern int bnx2x_hw_init ( struct bnx2x_nic *bnx2x );
 extern void bnx2x_hw_free ( struct bnx2x_nic *bnx2x );
 extern void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x,
 				const uint8_t *mac );
+extern void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x );
+
+#define NIG_REG_STAT0_BRB_TRUNCATE		0x105f8
+#define NIG_REG_STAT0_BRB_DISCARD		0x105f0
+#define NIG_REG_STAT0_EGRESS_MAC_PKT0		0x10750
+#define BRB1_REG_NUM_OF_FULL_BLOCKS		0x60090
+#define PRS_REG_NUM_OF_PACKETS			0x40124
 extern int bnx2x_igu_info ( struct bnx2x_nic *bnx2x );
 extern void bnx2x_igu_ack_sb ( struct bnx2x_nic *bnx2x,
 			       unsigned int igu_sb_id, unsigned int segment,

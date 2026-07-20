@@ -1413,6 +1413,43 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 }
 
 /**
+ * Dump RX-path diagnostic counters
+ *
+ * @v bnx2x		bnx2x device
+ *
+ * Reads the packet/discard counters at each stage of the ingress
+ * path (NIG, BRB, parser) plus the USTORM producer state, to locate
+ * where inbound frames are dying.  Port 0 counters only.
+ */
+void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
+	uint32_t prods[2];
+	unsigned int i;
+
+	DBGC ( bnx2x, "BNX2X %p RXDIAG nig_brb_discard %d nig_brb_truncate "
+	       "%d brb_full_blocks %d prs_packets %d nig_egress_mac_pkt %d\n",
+	       bnx2x,
+	       bnx2x_readl ( bnx2x, NIG_REG_STAT0_BRB_DISCARD ),
+	       bnx2x_readl ( bnx2x, NIG_REG_STAT0_BRB_TRUNCATE ),
+	       bnx2x_readl ( bnx2x, BRB1_REG_NUM_OF_FULL_BLOCKS ),
+	       bnx2x_readl ( bnx2x, PRS_REG_NUM_OF_PACKETS ),
+	       bnx2x_readl ( bnx2x, NIG_REG_STAT0_EGRESS_MAC_PKT0 ) );
+
+	/* Read back the USTORM RX producers for our queue zone */
+	for ( i = 0 ; i < 2 ; i++ ) {
+		prods[i] = bnx2x_readl ( bnx2x,
+			( BAR_USTRORM_INTMEM +
+			  bnx2x_iro ( 217 )->base + ( i * 4 ) ) );
+	}
+	DBGC ( bnx2x, "BNX2X %p RXDIAG ustorm prods %08x %08x fp_sb", bnx2x,
+	       prods[0], prods[1] );
+	for ( i = 0 ; i < 8 ; i++ ) {
+		DBGC ( bnx2x, " %04x",
+		       ( ( uint16_t * ) bnx2x->fp_sb )[i] );
+	}
+	DBGC ( bnx2x, "\n" );
+}
+
+/**
  * Allocate hardware init memory (CDU context, QM pages)
  *
  * @v bnx2x		bnx2x device
