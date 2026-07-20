@@ -284,7 +284,7 @@ static int bnx2x_init_shmem ( struct bnx2x_nic *bnx2x ) {
 	bnx2x->bc_rev = ( bnx2x_shmem_readl ( bnx2x,
 					      BNX2X_SHMEM_BC_REV ) >> 8 );
 
-	DBGC ( bnx2x, "BNX2X %p shmem %08x shmem2 %08x bc %x.%x.%x "
+	DBGC ( bnx2x, "BNX2X %p shmem %08x shmem2 %08x bc %d.%d.%d "
 	       "hw_config %08x\n", bnx2x, bnx2x->shmem_base,
 	       bnx2x->shmem2_base, ( ( bnx2x->bc_rev >> 16 ) & 0xff ),
 	       ( ( bnx2x->bc_rev >> 8 ) & 0xff ), ( bnx2x->bc_rev & 0xff ),
@@ -465,8 +465,20 @@ static void bnx2x_check_link ( struct net_device *netdev ) {
 			BNX2X_SHMEM_LINK_STATUS ( bnx2x->port ) );
 	if ( link_status & LINK_STATUS_LINK_UP ) {
 		if ( ! netdev_link_ok ( netdev ) ) {
-			DBGC ( bnx2x, "BNX2X %p link up (status %08x)\n",
-			       bnx2x, link_status );
+			unsigned int speed =
+				LINK_STATUS_SPEED_AND_DUPLEX ( link_status );
+			DBGC ( bnx2x, "BNX2X %p link up at %s (status "
+			       "%08x)\n", bnx2x,
+			       ( ( speed ==
+				   LINK_STATUS_SPEED_AND_DUPLEX_20GXFD ) ?
+				 "20G" :
+				 ( speed ==
+				   LINK_STATUS_SPEED_AND_DUPLEX_10GXFD ) ?
+				 "10G" :
+				 ( speed ==
+				   LINK_STATUS_SPEED_AND_DUPLEX_1000XFD ) ?
+				 "1G" : "other speed" ),
+			       link_status );
 			netdev_link_up ( netdev );
 		}
 	} else {

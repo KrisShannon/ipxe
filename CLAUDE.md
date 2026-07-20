@@ -30,6 +30,29 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (b)**: **Phase 1 validated on real hardware.** Boot of the
+  phase-1 build on the target system probed all six functions successfully
+  (4× BCM57840 rNDC + 2× BCM57810), correct per-port MACs, all links up.
+  Raw log preserved below; key findings:
+  - **rNDC 57840 reports chip num `0x168d`** (`CHIP_NUM_57840_OBSOLETE`,
+    chip id `168d1010`), *not* 16a1. Any future chip-number checks (E3
+    detection for init!) must include 168d/16ab. Defines added to bnx2x.h.
+  - 57810 (chip id `168e1000`) presents its two ports as **pf0→path0 and
+    pf1→path1, both port 0** with per-path shmem (bases `003c6c80` /
+    `003c7640`) — matches Linux `pfid = pf_num & 6`, `path = pf_num & 1`
+    logic and yields correct distinct MACs. On these chips the "path" is
+    what separates the two network ports; same shmem bases are shared with
+    the 57840 functions on the same path.
+  - 57840 rNDC: pf0-3 → (path,port) = (0,0),(1,0),(0,1),(1,1), 4-port mode
+    detected correctly, MACs ...93:dc/df, ...99:56/59.
+  - **`port_mb.link_status` is valid with no driver loaded**: all functions
+    show `0x40900275` = link up, speed/duplex code 10 = 10G FD, autoneg
+    enabled+complete. MFW-maintained link confirmed ⇒ phase 5 strategy
+    (skip bnx2x_link.c, use MFW link) is viable.
+  - Bootcode: rNDC bc 7.12.4, 57810 bc 7.14.18 (printed hex in phase-1
+    build — now fixed to decimal to match ethtool's "bc X.Y.Z").
+  - MF mode questions remain open (this boot predates phase-2 code; the
+    phase-2 hardware question list below still stands).
 - **2026-07-20**: Phase 2 (MCP handshake) implemented. `bnx2x_fw_command()`
   mailbox with sequence numbers; `ifopen` now performs: fw_seq resume from
   `drv_mb_header` → simplified previous-unload (UNLOAD_REQ_WOL_DIS +
@@ -235,6 +258,46 @@ Other useful references:
 - iPXE driver model examples: `src/drivers/net/bnxt/` (Broadcom, DMA rings),
   `src/drivers/net/intel.c` (clean minimal ring driver).
 - iPXE porting doc: https://ipxe.org/dev/drivers
+
+## Hardware test logs
+
+### 2026-07-20 — phase-1 build, first boot on target system
+
+```
+BNX2X 0x70f53470 chip id 168d1010
+BNX2X 0x70f53470 pf 0 pfid 0 port 0 path 0 (4-port mode)
+BNX2X 0x70f53470 shmem 003c6c80 shmem2 003c3e1c bc 7.c.4 hw_config 00010111
+BNX2X 0x70f53470 port 0 MAC 4c:76:25:ba:93:dc
+BNX2X 0x70f53470 link up (status 40900275)
+BNX2X 0x70f54130 chip id 168d1010
+BNX2X 0x70f54130 pf 1 pfid 0 port 0 path 1 (4-port mode)
+BNX2X 0x70f54130 shmem 003c7640 shmem2 003c4020 bc 7.c.4 hw_config 00010111
+BNX2X 0x70f54130 port 0 MAC 4c:76:25:ba:93:df
+BNX2X 0x70f54130 link up (status 40900275)
+BNX2X 0x70f54df0 chip id 168d1010
+BNX2X 0x70f54df0 pf 2 pfid 1 port 1 path 0 (4-port mode)
+BNX2X 0x70f54df0 shmem 003c6c80 shmem2 003c3e1c bc 7.c.4 hw_config 00010111
+BNX2X 0x70f54df0 port 1 MAC 4c:76:25:ba:99:56
+BNX2X 0x70f54df0 link up (status 40900275)
+BNX2X 0x70f582d0 chip id 168d1010
+BNX2X 0x70f582d0 pf 3 pfid 1 port 1 path 1 (4-port mode)
+BNX2X 0x70f582d0 shmem 003c7640 shmem2 003c4020 bc 7.c.4 hw_config 00010111
+BNX2X 0x70f582d0 port 1 MAC 4c:76:25:ba:99:59
+BNX2X 0x70f582d0 link up (status 40900275)
+BNX2X 0x70f58f30 chip id 168e1000
+BNX2X 0x70f58f30 pf 0 pfid 0 port 0 path 0 (2-port mode)
+BNX2X 0x70f58f30 shmem 003c6c80 shmem2 003c41dc bc 7.e.12 hw_config 00010101
+BNX2X 0x70f58f30 port 0 MAC 4c:76:25:ba:93:e0
+BNX2X 0x70f58f30 link up (status 40900275)
+BNX2X 0x70f5c410 chip id 168e1000
+BNX2X 0x70f5c410 pf 1 pfid 0 port 0 path 1 (2-port mode)
+BNX2X 0x70f5c410 shmem 003c7640 shmem2 003c4428 bc 7.e.12 hw_config 00010101
+BNX2X 0x70f5c410 port 0 MAC 4c:76:25:ba:93:e3
+BNX2X 0x70f5c410 link up (status 40900275)
+```
+
+(`bc` values are hex in this build: 7.c.4 = 7.12.4, 7.e.12 = 7.14.18.
+`40900275` = link up, 10G FD, AN enabled+complete.)
 
 ## Session/workflow notes
 

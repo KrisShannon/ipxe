@@ -33,6 +33,12 @@ FILE_LICENCE ( GPL2_ONLY );
 #define BNX2X_CHIP_NUM_57840_4_10	0x16a1
 #define BNX2X_CHIP_NUM_57840_2_20	0x16a2
 #define BNX2X_CHIP_NUM_57840_MF		0x16a4
+/* Early 57840s (e.g. Dell rNDC, PCI id 16a1) report these chip
+ * numbers, confirmed on real hardware; any chip-number-based checks
+ * (e.g. E3 detection in the init code) must include them.
+ */
+#define BNX2X_CHIP_NUM_57840_OBSOLETE	0x168d
+#define BNX2X_CHIP_NUM_57840_MF_OBSOLETE 0x16ab
 
 /** Extract chip number from composed chip id */
 #define BNX2X_CHIP_NUM( chip_id )	( (chip_id) >> 16 )
@@ -100,6 +106,10 @@ FILE_LICENCE ( GPL2_ONLY );
 #define BNX2X_SHMEM_LINK_STATUS( port ) \
 	( 0x0664 + ( (port) * BNX2X_SHMEM_PORT_MB_STRIDE ) )
 #define LINK_STATUS_LINK_UP		0x00000001
+#define LINK_STATUS_SPEED_AND_DUPLEX( status ) ( ( (status) >> 1 ) & 0xf )
+#define LINK_STATUS_SPEED_AND_DUPLEX_1000XFD	7
+#define LINK_STATUS_SPEED_AND_DUPLEX_10GXFD	10
+#define LINK_STATUS_SPEED_AND_DUPLEX_20GXFD	11
 
 /** Per-function driver/MCP mailbox (struct drv_func_mb) */
 #define BNX2X_SHMEM_FUNC_MB_STRIDE	0x2c
