@@ -527,6 +527,11 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	if ( ( rc = bnx2x_set_rx_mode ( bnx2x ) ) != 0 )
 		goto err_halt;
 
+	/* Bring up the MAC (the MFW maintains the PHY link, but the
+	 * MAC block is always the driver's responsibility)
+	 */
+	bnx2x_xmac_enable ( bnx2x, netdev->ll_addr );
+
 	DBGC ( bnx2x, "BNX2X %p datapath up\n", bnx2x );
 	return 0;
 

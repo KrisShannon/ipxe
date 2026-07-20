@@ -354,6 +354,37 @@ struct bnx2x_nic;
 #define IGU_REG_ATTN_MSG_ADDR_H			0x13011c
 #define IGU_REG_ATTN_MSG_ADDR_L			0x130120
 
+/* XMAC (E3 10/20G MAC) registers (from Linux bnx2x_reg.h) */
+#define GRCBASE_XMAC0				0x163000
+#define GRCBASE_XMAC1				0x163800
+#define XMAC_REG_CTRL				0x00
+#define XMAC_CTRL_REG_TX_EN			0x01
+#define XMAC_CTRL_REG_RX_EN			0x02
+#define XMAC_REG_TX_CTRL			0x20
+#define XMAC_REG_CTRL_SA_LO			0x28
+#define XMAC_REG_CTRL_SA_HI			0x2c
+#define XMAC_REG_RX_MAX_SIZE			0x40
+#define XMAC_REG_RX_LSS_CTRL			0x50
+#define XMAC_RX_LSS_CTRL_REG_LOCAL_FAULT_DISABLE	0x01
+#define XMAC_RX_LSS_CTRL_REG_REMOTE_FAULT_DISABLE	0x02
+#define XMAC_REG_CLEAR_RX_LSS_STATUS		0x60
+#define XMAC_REG_PAUSE_CTRL			0x68
+#define XMAC_REG_PFC_CTRL			0x70
+#define XMAC_REG_PFC_CTRL_HI			0x74
+#define XMAC_REG_EEE_CTRL			0xd8
+#define MISC_REG_RESET_REG_2			0xa590
+#define MISC_REGISTERS_RESET_REG_2_XMAC		( 0x1 << 22 )
+#define MISC_REGISTERS_RESET_REG_2_XMAC_SOFT	( 0x1 << 23 )
+#define MISC_REG_XMAC_PHY_PORT_MODE		0xa960
+#define MISC_REG_XMAC_CORE_PORT_MODE		0xa964
+#define NIG_REG_EGRESS_EMAC0_PORT		0x10058
+#define NIG_REG_P0_MAC_IN_EN			0x185ac
+#define NIG_REG_P0_MAC_OUT_EN			0x185b0
+#define NIG_REG_P0_MAC_PAUSE_OUT_EN		0x185b4
+#define NIG_REG_P1_MAC_IN_EN			0x185c0
+#define NIG_REG_P1_MAC_OUT_EN			0x185c4
+#define NIG_REG_P1_MAC_PAUSE_OUT_EN		0x185c8
+
 /* Storm internal memory BAR0 windows */
 #define BAR_USTRORM_INTMEM			0x400000
 #define BAR_CSTRORM_INTMEM			0x410000
@@ -368,6 +399,8 @@ struct bnx2x_nic;
 
 extern int bnx2x_hw_init ( struct bnx2x_nic *bnx2x );
 extern void bnx2x_hw_free ( struct bnx2x_nic *bnx2x );
+extern void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x,
+				const uint8_t *mac );
 extern int bnx2x_igu_info ( struct bnx2x_nic *bnx2x );
 extern void bnx2x_igu_ack_sb ( struct bnx2x_nic *bnx2x,
 			       unsigned int igu_sb_id, unsigned int segment,

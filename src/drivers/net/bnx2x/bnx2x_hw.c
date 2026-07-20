@@ -1283,6 +1283,118 @@ static int bnx2x_init_hw_func ( struct bnx2x_nic *bnx2x ) {
 }
 
 /**
+ * Initialise and enable the XMAC (E3 10/20G MAC)
+ *
+ * @v bnx2x		bnx2x device
+ * @v mac		MAC address (for pause frame source address)
+ *
+ * Ported from Linux bnx2x_link.c bnx2x_xmac_init() /
+ * bnx2x_xmac_enable() / bnx2x_update_pfc_xmac() /
+ * bnx2x_set_xumac_nig(), for the MFW-maintained 10G link case with
+ * flow control and PFC disabled.  The PHY itself is never touched.
+ */
+void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
+	uint32_t xmac_base = ( bnx2x->port ? GRCBASE_XMAC1 : GRCBASE_XMAC0 );
+	unsigned int chip_num = BNX2X_CHIP_NUM ( bnx2x->chip_id );
+	int is_57840 = ( ( chip_num == BNX2X_CHIP_NUM_57840_4_10 ) ||
+			 ( chip_num == BNX2X_CHIP_NUM_57840_2_20 ) ||
+			 ( chip_num == BNX2X_CHIP_NUM_57840_OBSOLETE ) );
+
+	/* In 4-port mode the XMAC block is shared by both ports of
+	 * the path: if it is already out of reset, the mode has been
+	 * set and it must not be reset again
+	 */
+	if ( ! ( is_57840 && bnx2x->port4mode &&
+		 ( bnx2x_readl ( bnx2x, MISC_REG_RESET_REG_2 ) &
+		   MISC_REGISTERS_RESET_REG_2_XMAC ) ) ) {
+
+		/* Hard reset */
+		bnx2x_writel ( bnx2x, MISC_REGISTERS_RESET_REG_2_XMAC,
+			       ( GRCBASE_MISC +
+				 MISC_REGISTERS_RESET_REG_2_CLEAR ) );
+		mdelay ( 1 );
+		bnx2x_writel ( bnx2x, MISC_REGISTERS_RESET_REG_2_XMAC,
+			       ( GRCBASE_MISC +
+				 MISC_REGISTERS_RESET_REG_2_SET ) );
+
+		if ( bnx2x->port4mode ) {
+			/* Two ports per path, Warp Core in 10G mode */
+			bnx2x_writel ( bnx2x, 1,
+				       MISC_REG_XMAC_CORE_PORT_MODE );
+			bnx2x_writel ( bnx2x, 3,
+				       MISC_REG_XMAC_PHY_PORT_MODE );
+		} else {
+			/* One port per path at 10G */
+			bnx2x_writel ( bnx2x, 0,
+				       MISC_REG_XMAC_CORE_PORT_MODE );
+			bnx2x_writel ( bnx2x, 3,
+				       MISC_REG_XMAC_PHY_PORT_MODE );
+		}
+
+		/* Soft reset */
+		bnx2x_writel ( bnx2x, MISC_REGISTERS_RESET_REG_2_XMAC_SOFT,
+			       ( GRCBASE_MISC +
+				 MISC_REGISTERS_RESET_REG_2_CLEAR ) );
+		mdelay ( 1 );
+		bnx2x_writel ( bnx2x, MISC_REGISTERS_RESET_REG_2_XMAC_SOFT,
+			       ( GRCBASE_MISC +
+				 MISC_REGISTERS_RESET_REG_2_SET ) );
+	}
+
+	/* Route NIG egress traffic to the XMAC (not the UMAC) */
+	bnx2x_writel ( bnx2x, 0,
+		       ( NIG_REG_EGRESS_EMAC0_PORT + ( bnx2x->port * 4 ) ) );
+
+	/* Disable idle-based fault detection and clear latched fault
+	 * state (we do not manage the warpcore, so mirror the Linux
+	 * !FLAGS_TX_ERROR_CHECK path)
+	 */
+	bnx2x_writel ( bnx2x, ( XMAC_RX_LSS_CTRL_REG_LOCAL_FAULT_DISABLE |
+				XMAC_RX_LSS_CTRL_REG_REMOTE_FAULT_DISABLE ),
+		       ( xmac_base + XMAC_REG_RX_LSS_CTRL ) );
+	bnx2x_writel ( bnx2x, 0,
+		       ( xmac_base + XMAC_REG_CLEAR_RX_LSS_STATUS ) );
+	bnx2x_writel ( bnx2x, 0x3,
+		       ( xmac_base + XMAC_REG_CLEAR_RX_LSS_STATUS ) );
+
+	/* Maximum RX packet size */
+	bnx2x_writel ( bnx2x, 0x2710, ( xmac_base + XMAC_REG_RX_MAX_SIZE ) );
+
+	/* CRC append for TX packets */
+	bnx2x_writel ( bnx2x, 0xc800, ( xmac_base + XMAC_REG_TX_CTRL ) );
+
+	/* Pause and PFC configuration: both disabled */
+	bnx2x_writel ( bnx2x, 0x18000, ( xmac_base + XMAC_REG_PAUSE_CTRL ) );
+	bnx2x_writel ( bnx2x, 0xffff8000, ( xmac_base + XMAC_REG_PFC_CTRL ) );
+	bnx2x_writel ( bnx2x, 0x2, ( xmac_base + XMAC_REG_PFC_CTRL_HI ) );
+
+	/* Source MAC for pause frames */
+	bnx2x_writel ( bnx2x, ( ( mac[2] << 24 ) | ( mac[3] << 16 ) |
+				( mac[4] << 8 ) | mac[5] ),
+		       ( xmac_base + XMAC_REG_CTRL_SA_LO ) );
+	bnx2x_writel ( bnx2x, ( ( mac[0] << 8 ) | mac[1] ),
+		       ( xmac_base + XMAC_REG_CTRL_SA_HI ) );
+
+	/* No EEE */
+	bnx2x_writel ( bnx2x, 0, ( xmac_base + XMAC_REG_EEE_CTRL ) );
+
+	/* Enable TX and RX */
+	bnx2x_writel ( bnx2x, ( XMAC_CTRL_REG_TX_EN | XMAC_CTRL_REG_RX_EN ),
+		       ( xmac_base + XMAC_REG_CTRL ) );
+
+	/* Open the NIG-to-MAC gates (no pause output) */
+	bnx2x_writel ( bnx2x, 1, ( bnx2x->port ? NIG_REG_P1_MAC_IN_EN :
+				   NIG_REG_P0_MAC_IN_EN ) );
+	bnx2x_writel ( bnx2x, 1, ( bnx2x->port ? NIG_REG_P1_MAC_OUT_EN :
+				   NIG_REG_P0_MAC_OUT_EN ) );
+	bnx2x_writel ( bnx2x, 0, ( bnx2x->port ? NIG_REG_P1_MAC_PAUSE_OUT_EN :
+				   NIG_REG_P0_MAC_PAUSE_OUT_EN ) );
+
+	DBGC ( bnx2x, "BNX2X %p XMAC enabled (port %d, %d-port mode)\n",
+	       bnx2x, bnx2x->port, ( bnx2x->port4mode ? 4 : 2 ) );
+}
+
+/**
  * Allocate hardware init memory (CDU context, QM pages)
  *
  * @v bnx2x		bnx2x device

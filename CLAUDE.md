@@ -30,6 +30,23 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (m)**: **Phase 5 XMAC bring-up implemented** (in
+  `bnx2x_hw.c` → no DEBUG string change). `bnx2x_xmac_enable()` runs
+  at the end of datapath bring-up: hard reset via RESET_REG_2 XMAC
+  bit (skipped if 57840+4-port and already out of reset — block is
+  shared per path), CORE_PORT_MODE 1/0 + PHY_PORT_MODE 3 (10G),
+  XMAC_SOFT reset cycle, NIG egress routed to XMAC
+  (NIG_REG_EGRESS_EMAC0_PORT=0), idle-fault detection disabled +
+  latched faults cleared (unmanaged warpcore), RX_MAX_SIZE 0x2710,
+  TX_CTRL 0xc800 (CRC append), pause/PFC disabled (0x18000/
+  0xffff8000/0x2), SA from MAC, EEE off, CTRL=TX_EN|RX_EN, NIG
+  P0/P1_MAC_IN_EN=OUT_EN=1 PAUSE_OUT_EN=0. Expect ifopen log line
+  "XMAC enabled (port 0, 4-port mode)". **NOT yet hardware-tested.**
+  Test: ifopen → TX should now appear on the switch; `dhcp net0`
+  (access port) / `vcreate --tag 602 net0` + `dhcp net0-602`; LACP.
+  MAC left enabled at close (chip is fully reset on next open; OS
+  driver does its own MAC init).
+
 - **2026-07-20 (l)**: **Phase 4b hardware test: all control paths work,
   but no packets reach the wire in either direction ⇒ the MAC (XMAC)
   is not initialised — phase 5 is mandatory, not optional.** Evidence:
