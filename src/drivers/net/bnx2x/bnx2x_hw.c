@@ -1322,7 +1322,7 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 	{
 		unsigned int i;
 		DBGC ( bnx2x, "BNX2X %p XMACPRE", bnx2x );
-		for ( i = 0 ; i < 32 ; i++ ) {
+		for ( i = 0 ; i < 128 ; i++ ) {
 			DBGC ( bnx2x, " %08x",
 			       bnx2x_readl ( bnx2x,
 					     ( xmac_base + ( i * 4 ) ) ) );
@@ -1331,23 +1331,18 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 	}
 
 	/* In 4-port mode the XMAC block is shared by both ports of
-	 * the path, and Linux skips the reset when it is already out
-	 * of reset (the other port may be in active use).  We do NOT
-	 * skip: the vendor UEFI driver leaves the XMAC out of reset,
-	 * so the skip would mean running forever on its core state -
-	 * and hardware bisection (LBTEST vs wire RX) shows the RX
-	 * blockage lives between the MAC and the LLH.  No other
-	 * driver instance can be using the path's other port under
-	 * iPXE, so resetting the shared block is safe here (it will
-	 * briefly disrupt any management sideband riding this port).
+	 * the path: if it is already out of reset, the mode has been
+	 * set and it must not be reset again (Linux rule, restored).
+	 * The vendor UEFI driver's register values proved IDENTICAL
+	 * to our own (XMACPRE vs RXDIAG xmac diff came back clean),
+	 * so the forced reset gains nothing - this run tests whether
+	 * the MAC loopback self-test passes on the untouched
+	 * vendor-configured XMAC, exonerating or convicting the reset
+	 * itself.
 	 */
-	if ( ( is_57840 && bnx2x->port4mode &&
-	       ( bnx2x_readl ( bnx2x, MISC_REG_RESET_REG_2 ) &
-		 MISC_REGISTERS_RESET_REG_2_XMAC ) ) ) {
-		DBGC ( bnx2x, "BNX2X %p XMAC out of reset (4-port): "
-		       "resetting anyway\n", bnx2x );
-	}
-	if ( 1 ) {
+	if ( ! ( is_57840 && bnx2x->port4mode &&
+		 ( bnx2x_readl ( bnx2x, MISC_REG_RESET_REG_2 ) &
+		   MISC_REGISTERS_RESET_REG_2_XMAC ) ) ) {
 
 		/* Hard reset */
 		bnx2x_writel ( bnx2x, MISC_REGISTERS_RESET_REG_2_XMAC,
@@ -1614,7 +1609,7 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 		uint32_t xmac_base = ( bnx2x->port ? GRCBASE_XMAC1 :
 				       GRCBASE_XMAC0 );
 		DBGC ( bnx2x, "BNX2X %p RXDIAG xmac", bnx2x );
-		for ( i = 0 ; i < 32 ; i++ ) {
+		for ( i = 0 ; i < 128 ; i++ ) {
 			DBGC ( bnx2x, " %08x",
 			       bnx2x_readl ( bnx2x,
 					     ( xmac_base + ( i * 4 ) ) ) );

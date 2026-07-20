@@ -30,6 +30,32 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (y)**: **XMACPRE vs our config diff came back CLEAN —
+  the vendor XMAC registers (0x00-0x7c) are IDENTICAL to ours**
+  (incl. unnamed MODE=0x40 @+0x08, RX_CTRL=0x40c @+0x30,
+  RX_VLAN_TAG=0x81008100/3 @+0x48, 0x8808 @+0x78; only diff:
+  RX_LSS_CTRL we write 3, vendor 0 — benign direction). Also
+  learned: **MSTAT counters are CLEAR-ON-READ** (mstat_rx 5->1
+  across MACLB = 5 cleared, 1 = the loopback frame); mstat1_rx=4 is
+  path0-port1's own switch chatter (its MSTAT got reset by common
+  init), NOT our frames. MACLB still failed after our reset with
+  vendor-identical config ⇒ either the difference hides ABOVE +0x7c
+  (EEE_CTRL @+0xd8 which we zero, or other regs 0x80-0x1fc), or the
+  XMAC registers are innocent and our FORCED HARD RESET breaks
+  something unrestorable (e.g. XMAC↔WC/NIG attach done by firmware
+  at power-up). This commit: (1) restore the Linux 4-port skip (do
+  NOT reset the XMAC when already out of reset → run on verbatim
+  vendor state), (2) widen XMACPRE + RXDIAG xmac dumps to 128 dwords
+  (0x00-0x1fc). Decision matrix: MACLB passes now ⇒ villain was our
+  reset + some register above 0x7c (diff the wide dumps, restore it,
+  and if none differs: never reset the XMAC, rely on CTRL-cycle);
+  wire RX too ⇒ DONE, phase 6. MACLB still fails on verbatim vendor
+  XMAC ⇒ XMAC fully exonerated ⇒ hunt shifts to the NIG P0 RX
+  interface / system-side clocking (MISC_REG_XMAC_CORE_PORT_MODE
+  semantics, NIG P0-region unnamed regs 0x185xx, or ask Broadcom
+  docs). Test: cold boot, usual DEBUG string, ifopen net0, arping,
+  ifclose; paste XMACPRE + MACLB + RXDIAG (both wide dumps).
+
 - **2026-07-20 (x)**: **MACLB verdict: XMAC system side broken
   generally — even the XMAC's own line-looped frame (mstat_rx 0->1,
   counted at the same tap as wire frames) never reaches the NIG
