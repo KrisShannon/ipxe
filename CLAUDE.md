@@ -30,6 +30,34 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (r)**: **Readback perfect — new working theory: the
+  datapath is probably FINE and the test had no deliverable
+  traffic.** Hardware readback showed every gate/enable at its
+  expected value (drv_mask 3f, mf 3, not_mcp 1, mf_mode 0, cls 0,
+  func_en 0, hdrs 6, mac_in/out 1, brb0_out/prs_req_in/prs_eop_out 1,
+  drain 0, llh/eop/rmp FIFOs empty, brb_occ 0, xmac_ctrl 3).
+  Crucially `rx_gruca 0 rx_grbca 0`: in the whole window NOT ONE
+  unicast or broadcast frame reached the MAC — the only ingress was
+  13 multicasts, consistent with link-local LLDP/CDP-class frames on
+  a quiet trunk port. Those match the MFW's RMP steering rules
+  (NIG_REG_LLH0_DEST_MAC_* etc., MCP-owned; not_mcp=1 only routes
+  NON-matching frames to the BRB — reg.h: "send to BRB1 if no match
+  on any of RMP rules"), so the MCP legitimately eats them: same on
+  Linux (bnx2x users never see peer LLDP; MFW consumes it for DCBX).
+  ⇒ prs_packets 0 may simply mean "nothing deliverable ever
+  arrived". Diag extended (same commit): mstat rx_grxpf/grxcf/grpok
+  + raw dump of RMP rules 0x101c0-0x10240 appended to the mstat
+  RXDIAG line. **Next hardware test must guarantee deliverable
+  traffic**: (a) `vcreate --tag <vlan> net0` + `dhcp net0-<vlan>` on
+  the trunk port — the DHCP OFFER itself is the deliverable frame;
+  and/or (b) from another host on that VLAN arping/ping-flood the
+  iPXE MAC/broadcast so tagged unicast+broadcast definitely arrive.
+  Success criteria: ifstat RX>0, or RXDIAG rx_gruca/grbca>0 with
+  prs_packets>0 (frames passing NIG) even if something later still
+  drops them. If gruca/grbca count but prs stays 0 → real NIG
+  problem after all (then dump RMP rules tell us what the MFW
+  claims). If DHCP completes: phase 6 (VLAN+LACP) begins.
+
 - **2026-07-20 (q)**: **BREAKTHROUGH: XMAC RX works — frames die
   between MAC and BRB.** Corrected MSTAT diag on hardware shows
   `tx_gtpkt 14 rx_grpkt 7 rx_grmca 7 rx_grfcs 0 xmac_lss 0` with

@@ -1459,6 +1459,23 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x68 ) ),
 		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x70 ) ),
 		       bnx2x_readl ( bnx2x, ( xmac_base + 0x58 ) ) );
+		/* Frame classification: pause (grxpf, entry 15), MAC
+		 * control (grxcf, entry 19), good-OK (grpok, entry 21),
+		 * plus a raw dump of the LLH0 management (RMP) steering
+		 * rules 0x101c0-0x10240 that divert matching ingress
+		 * frames to the MCP even when not_mcp=1.
+		 */
+		DBGC ( bnx2x, "BNX2X %p RXDIAG mstat rx_grxpf %d rx_grxcf %d "
+		       "rx_grpok %d rmp", bnx2x,
+		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x78 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x98 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0xa8 ) ) );
+		for ( i = 0 ; i <= ( ( 0x10240 - 0x101c0 ) / 4 ) ; i++ ) {
+			DBGC ( bnx2x, " %08x",
+			       bnx2x_readl ( bnx2x,
+					     ( 0x101c0 + ( i * 4 ) ) ) );
+		}
+		DBGC ( bnx2x, "\n" );
 	}
 
 	/* Read back the NIG ingress-path configuration (port 0
