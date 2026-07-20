@@ -29,6 +29,10 @@ struct bnx2x_nic;
 /** Slowpath status block index used for the event queue consumer */
 #define BNX2X_HC_SP_INDEX_EQ_CONS	7
 
+/** IGU operation modes (enum igu_mode) */
+#define HC_IGU_BC_MODE			0
+#define HC_IGU_NBC_MODE			1
+
 /** Event queue geometry: one page of 16-byte elements */
 #define BNX2X_EQ_ELEM_SIZE		16
 #define BNX2X_EQ_DESC_CNT		( BNX2X_PAGE_SIZE /	\

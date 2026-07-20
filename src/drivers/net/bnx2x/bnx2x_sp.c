@@ -456,6 +456,23 @@ int bnx2x_sp_init ( struct bnx2x_nic *bnx2x ) {
 	memset ( bnx2x->spq, 0, BNX2X_PAGE_SIZE );
 	memset ( bnx2x->sp_data, 0, BNX2X_SP_DATA_SIZE );
 
+	/* Internal storm RAM initialisation that the firmware init
+	 * tables do not cover (Linux bnx2x_init_internal_common:
+	 * "Zero this manually as its initialization is currently
+	 * missing in the initTool").  Uninitialised USTORM
+	 * aggregation data can wedge the RX placement path, which
+	 * backpressures TSTORM, the parser and ultimately the whole
+	 * MAC ingress.  The IGU mode byte tells CSTORM how status
+	 * block acks work; our IGU is forced to normal (non
+	 * backward-compatible) mode.
+	 */
+	bnx2x_storm_fill ( bnx2x, BAR_USTRORM_INTMEM,
+			   bnx2x_iro ( 213 )->base, bnx2x_iro ( 213 )->size,
+			   0 );
+	writeb ( HC_IGU_NBC_MODE,
+		 ( bnx2x->regs + BAR_CSTRORM_INTMEM +
+		   bnx2x_iro ( 161 )->base ) );
+
 	/* Set up default SB, SPQ and EQ */
 	bnx2x_init_def_sb ( bnx2x );
 	bnx2x_init_sp_ring ( bnx2x );

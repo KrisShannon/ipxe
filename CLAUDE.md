@@ -30,6 +30,35 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ac)**: **Clean-pipeline run: prs 0 on BOTH chips ⇒
+  the earlier "trickle" was almost certainly the LBTEST runts
+  echoing in the counter, NOT MAC frames. Storm/CFC diag all clean
+  (no latched errors; lcids inside_pf 1 = our ETH connection). So:
+  no MAC-side frame has EVER reached the parser on either chip.**
+  MACLB still fails everywhere. THEN: found a genuinely missing
+  init step — Linux bnx2x_init_internal_common (nic_init path, run
+  on every COMMON load) which we never ported: (1) zeroes
+  USTORM_AGG_DATA (IRO[213], ~size dwords) with the comment "Zero
+  this manually as its initialization is currently missing in the
+  initTool" — the fw init tables leave USTORM aggregation data as
+  GARBAGE; uninitialised agg state can wedge USTORM RX placement,
+  which would backpressure TSTORM→PRS→NIG→MAC on ALL chips
+  identically (fits every symptom, incl. why ramrod CQEs still
+  work); (2) writes the CSTORM IGU mode byte (IRO[161].base,
+  REG_WR8) = HC_IGU_NBC_MODE (1) since we force the IGU to normal
+  (non-BC) mode at init. BOTH now ported into bnx2x_sp_init()
+  (before def-SB setup; bnx2x_sp.c), defines in bnx2x_sp.h. Also
+  checked bnx2x_pf_init/bnx2x_func_init for other gaps: func_cfg is
+  E1x-only, vf_to_pf/func_en/SPQ we already do, cmng is TX rate
+  shaping only (skippable), IGU stats zeroing cosmetic ⇒ nothing
+  else missing there. Web search for XMAC/Broadcom register docs:
+  no public spec found. Test: cold boot, usual DEBUG string, ifopen
+  net0 (MACLB auto) + arping + ifclose; MACLB idx1 advancing and/or
+  ifstat RX>0 = FIXED (then vcreate+dhcp+phase 6!); if still dead,
+  next step is porting the STATS_QUERY ramrod for TSTORM drop
+  counters, and asking on ipxe-devel/Broadcom for the XMAC→NIG
+  system-side spec.
+
 - **2026-07-20 (ab)**: **Fault relocated: the MAC→NIG→BRB→PRS path
   is (at least partly) ALIVE on BOTH chips — the stall is at the
   parser→storm handoff.** Evidence: 57840 sibling-enable run showed
