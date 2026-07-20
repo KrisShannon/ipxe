@@ -532,6 +532,12 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	 */
 	bnx2x_xmac_enable ( bnx2x, netdev->ll_addr );
 
+	/* Inject NIG loopback debug packets: tests NIG->BRB->PRS->
+	 * storm placement with no wire traffic (results in the LBTEST
+	 * debug line; the packets may also surface as RX completions)
+	 */
+	bnx2x_lb_test ( bnx2x );
+
 	DBGC ( bnx2x, "BNX2X %p datapath up\n", bnx2x );
 	return 0;
 

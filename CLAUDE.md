@@ -30,6 +30,39 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (t)**: **XON toggle did NOT fix RX. Two new probes in
+  one build: XMAC CTRL off/on cycle (fix candidate 2) + NIG debug
+  packet injection (bisection test).** Latest run: 18 good frames at
+  MAC (5 uca/8 mca/5 bca, grpok 18), prs still 0; new sts line clean
+  (rx_macfifo_empty 1, prty 0/0; int0=1 is bit0 address-error, almost
+  certainly self-inflicted by our diag reading undocumented
+  0x1023c/0x10240 — ignore). Switch counters this time confirm ALL 5
+  iPXE TX frames arrived (incl. 3×18-byte frames padded to 64 —
+  NOTE: "TX n len 18" = tagged eth header ONLY, no payload; iob_len
+  really is 18; unexplained, investigate later — maybe an upper-layer
+  frame we mis-handle, but they do reach the switch).
+  New reasoning: on this system the UEFI epoch leaves XMAC out of
+  reset AND enabled (CTRL=3), so the 4-port skip means we never
+  reset it, and writing CTRL=3 over CTRL=3 gives NO rising edge on
+  RX_EN — the MAC may never re-attach its system side to the NIG we
+  reconfigured underneath it. Linux gets this edge implicitly:
+  prev_unload_close_mac writes CTRL=0 (+20ms) on every load, then
+  restores. Fix: bnx2x_xmac_enable now writes CTRL=0 + 20ms delay
+  right after the (possibly skipped) reset block, before config;
+  final CTRL=3 write provides the rising edge. ALSO added
+  bnx2x_lb_test() (bnx2x_hw.c, called at end of eth_open before
+  "datapath up"): injects 2×16-byte multicast debug packets straight
+  into the NIG loopback LLH via NIG_REG_DEBUG_PACKET_LB 0x10800
+  (Linux bnx2x_lb_pckt format: SOP beat {0x55555555,0x55555555,0x20},
+  EOP beat {0x09000000,0x55555555,0x10}), then logs "LBTEST
+  prs_packets N brb_full N lb_eop_empty X". Reading: LBTEST prs=2 &
+  wire-RX still dead ⇒ NIG->BRB->PRS(+maybe storm->host if ifstat
+  RX:2) proven good, blockage is MAC->LLH0 hop specifically. LBTEST
+  prs=0 ⇒ NIG ingress core broken generally (look at LB vs P0 LLH
+  differences, then BRB). If CTRL-cycle fix works: wire RX>0, done —
+  proceed to phase 6. Same DEBUG string; ifopen net0, arping/bcast
+  ping from VLAN 602 host, ifclose, paste LBTEST + all RXDIAG lines.
+
 - **2026-07-20 (s)**: **PRIME SUSPECT FOUND: latched NIG XOFF —
   fix implemented (PFC_CTRL_HI XON toggle), awaiting hardware
   test.** The guaranteed-traffic test settled it: 119 good frames at

@@ -1341,6 +1341,19 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 				 MISC_REGISTERS_RESET_REG_2_SET ) );
 	}
 
+	/* Cycle the MAC enables OFF before reconfiguring.  On this
+	 * system the vendor UEFI driver leaves the XMAC enabled
+	 * (CTRL=3) and out of reset, so in 4-port mode the hard-reset
+	 * path above is skipped and our final TX_EN|RX_EN write would
+	 * produce no edge on RX_EN at all - the MAC would never
+	 * re-attach its system side to the NIG that we have been
+	 * reconfiguring underneath it.  Linux gets this edge implicitly
+	 * because bnx2x_prev_unload_close_mac writes CTRL=0 (with a
+	 * 20ms settle) on every load after a previous driver.
+	 */
+	bnx2x_writel ( bnx2x, 0, ( xmac_base + XMAC_REG_CTRL ) );
+	mdelay ( 20 );
+
 	/* Route NIG egress traffic to the XMAC (not the UMAC) */
 	bnx2x_writel ( bnx2x, 0,
 		       ( NIG_REG_EGRESS_EMAC0_PORT + ( bnx2x->port * 4 ) ) );
@@ -1544,6 +1557,49 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 		       ( ( uint16_t * ) bnx2x->fp_sb )[i] );
 	}
 	DBGC ( bnx2x, "\n" );
+}
+
+/**
+ * Inject NIG loopback debug packets to test the ingress pipeline
+ *
+ * @v bnx2x		bnx2x device
+ *
+ * Writes two 16-byte packets directly into the NIG's loopback LLH
+ * via NIG_REG_DEBUG_PACKET_LB (Linux bnx2x_lb_pckt, used by the E1
+ * internal memory self-test).  This enters the ingress pipeline
+ * after the MAC, so it exercises NIG->BRB->PRS->storm placement
+ * without any wire traffic: if PRS_REG_NUM_OF_PACKETS counts these
+ * while wire frames still vanish, the blockage is squarely in the
+ * MAC-to-LLH hop.  Destination MAC 55:55:55:55:55:55 is multicast,
+ * so with the accept-all-multicast filter the packets can be
+ * delivered all the way to the RX ring.
+ */
+void bnx2x_lb_test ( struct bnx2x_nic *bnx2x ) {
+	/* Beat format: 64 bits of data + control word (bit5=SOP in
+	 * word 2 of the first beat, bit4=EOP with eop_bvalid=0 in the
+	 * last; port_id/vnic_num bits left zero = port 0)
+	 */
+	static const uint32_t sop[3] = { 0x55555555, 0x55555555, 0x20 };
+	static const uint32_t eop[3] = { 0x09000000, 0x55555555, 0x10 };
+	unsigned int pkt;
+	unsigned int i;
+
+	for ( pkt = 0 ; pkt < 2 ; pkt++ ) {
+		for ( i = 0 ; i < 3 ; i++ ) {
+			bnx2x_writel ( bnx2x, sop[i],
+				       ( 0x10800 + ( i * 4 ) ) );
+		}
+		for ( i = 0 ; i < 3 ; i++ ) {
+			bnx2x_writel ( bnx2x, eop[i],
+				       ( 0x10800 + ( i * 4 ) ) );
+		}
+	}
+	mdelay ( 10 );
+	DBGC ( bnx2x, "BNX2X %p LBTEST prs_packets %d brb_full %d "
+	       "lb_eop_empty %08x\n", bnx2x,
+	       bnx2x_readl ( bnx2x, PRS_REG_NUM_OF_PACKETS ),
+	       bnx2x_readl ( bnx2x, BRB1_REG_NUM_OF_FULL_BLOCKS ),
+	       bnx2x_readl ( bnx2x, 0x104e0 /* INGRESS_EOP_LB_EMPTY */ ) );
 }
 
 /**
