@@ -1434,6 +1434,28 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 	       bnx2x_readl ( bnx2x, PRS_REG_NUM_OF_PACKETS ),
 	       bnx2x_readl ( bnx2x, NIG_REG_STAT0_EGRESS_MAC_PKT0 ) );
 
+	/* MSTAT (E3 statistics block): stats_tx at +0, stats_rx at
+	 * +0xd8; each counter is a lo/hi dword pair.  tx_gtpkt at
+	 * +0x70, rx_grpkt at +0xd8+0x50, rx_grfcs/gruca/grmca/grbca
+	 * following.  XMAC RX_LSS_STATUS shows latched fault state.
+	 */
+	{
+		uint32_t mstat = ( bnx2x->port ? 0x162800 /* MSTAT1 */ :
+				   0x162000 /* MSTAT0 */ );
+		uint32_t xmac_base = ( bnx2x->port ? GRCBASE_XMAC1 :
+				       GRCBASE_XMAC0 );
+		DBGC ( bnx2x, "BNX2X %p RXDIAG mstat tx_gtpkt %d rx_grpkt "
+		       "%d rx_grfcs %d rx_gruca %d rx_grmca %d rx_grbca %d "
+		       "xmac_lss %08x\n", bnx2x,
+		       bnx2x_readl ( bnx2x, ( mstat + 0x70 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x50 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x58 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x60 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x68 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x70 ) ),
+		       bnx2x_readl ( bnx2x, ( xmac_base + 0x58 ) ) );
+	}
+
 	/* Read back the USTORM RX producers for our queue zone */
 	for ( i = 0 ; i < 2 ; i++ ) {
 		prods[i] = bnx2x_readl ( bnx2x,
