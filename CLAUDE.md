@@ -30,6 +30,19 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ah)**: **PHASE 6a COMPLETE: vcreate VLANs work on
+  both cards.** `ifconf -c ipv6 net0-602` → ok (SLAAC over tagged
+  VLAN 602 = tagged RS out, tagged RA in, on the 57840 rNDC);
+  `ifconf -c dhcp net4-4001` → ok (full DHCPv4 exchange over tagged
+  VLAN 4001 on the 57810). This is the capability the vendor
+  SNP/UNDI could never provide. REMAINING: (b) LACP — re-enable
+  LACP on the switch port (add back to port-channel), ifopen net0,
+  wait 30-90s, check switch port-channel status (iPXE's passive
+  eth_slow responder should bring the link into the bundle; build
+  with eth_slow:3 in DEBUG to watch LACPDUs); then vcreate+dhcp
+  over the bundled port = the original goal scenario. Then the
+  cleanup pass listed in (ag).
+
 - **2026-07-20 (ag)**: **RX WORKS ON BOTH CHIPS.** ifstat RX:14
   (net0/57840) and RX:15 (net4/57810); STATS shows tstorm accepting
   6/5/3 and ustorm no_buff 0 — the BNX2X_RX_FILL 8→48 change was
