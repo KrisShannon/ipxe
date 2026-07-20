@@ -437,6 +437,113 @@ void bnx2x_sp_free ( struct bnx2x_nic *bnx2x ) {
  * @v bnx2x		bnx2x device
  * @ret rc		Return status code
  */
+/**
+ * Query and dump the storm firmware statistics
+ *
+ * @v bnx2x		bnx2x device
+ *
+ * Posts a STAT_QUERY ramrod asking the firmware to DMA its per-port
+ * TSTORM statistics (MAC/filter/BRB discard counters) and our
+ * queue's per-storm statistics (received/discarded packet counts by
+ * reason) to a host buffer, then prints them.  This names the fate
+ * of RX frames at the storm level, which no directly-readable
+ * register exposes.
+ *
+ * Buffer layout (one page): the query request (header + 2 entries)
+ * at +0x000; completion counters at +0x800 (pre-filled with 0xff;
+ * the firmware writes back the request's drv_stats_counter, i.e. 0);
+ * per-port TSTORM statistics at +0x840; per-queue statistics at
+ * +0x880 (TSTORM at +0x00, USTORM at +0x38, XSTORM at +0x70 within).
+ */
+void bnx2x_stats_query_dump ( struct bnx2x_nic *bnx2x ) {
+	uint8_t *buf;
+	uint32_t *req;
+	uint32_t *cnt;
+	uint32_t *port;
+	uint32_t *queue;
+	physaddr_t phys;
+	unsigned int cl_id = ( ( bnx2x->pfid >> 1 ) << 2 );
+	unsigned int i;
+
+	buf = malloc_phys ( BNX2X_PAGE_SIZE, BNX2X_PAGE_SIZE );
+	if ( ! buf )
+		return;
+	memset ( buf, 0, BNX2X_PAGE_SIZE );
+	req = ( ( uint32_t * ) buf );
+	cnt = ( ( uint32_t * ) ( buf + 0x800 ) );
+	port = ( ( uint32_t * ) ( buf + 0x840 ) );
+	queue = ( ( uint32_t * ) ( buf + 0x880 ) );
+	phys = virt_to_bus ( buf );
+
+	/* stats_query_header: cmd_num, drv_stats_counter=0, then the
+	 * completion counters address (regpair lo/hi)
+	 */
+	buf[0x00] = 2;				/* cmd_num */
+	req[2] = cpu_to_le32 ( ( phys + 0x800 ) & 0xffffffffUL );
+	req[3] = cpu_to_le32 ( ( ( uint64_t ) ( phys + 0x800 ) ) >> 32 );
+	memset ( ( buf + 0x800 ), 0xff, 0x20 );
+
+	/* Query 0: per-port statistics (TSTORM discard counters) */
+	buf[0x10] = 1;				/* kind = STATS_TYPE_PORT */
+	buf[0x11] = bnx2x->port;		/* index (don't care) */
+	buf[0x12] = bnx2x->pfid;		/* funcID le16 */
+	req[6] = cpu_to_le32 ( ( phys + 0x840 ) & 0xffffffffUL );
+	req[7] = cpu_to_le32 ( ( ( uint64_t ) ( phys + 0x840 ) ) >> 32 );
+
+	/* Query 1: our queue's statistics */
+	buf[0x20] = 0;				/* kind = STATS_TYPE_QUEUE */
+	buf[0x21] = cl_id;			/* index = stats id */
+	buf[0x22] = bnx2x->pfid;		/* funcID le16 */
+	req[10] = cpu_to_le32 ( ( phys + 0x880 ) & 0xffffffffUL );
+	req[11] = cpu_to_le32 ( ( ( uint64_t ) ( phys + 0x880 ) ) >> 32 );
+	wmb();
+
+	bnx2x_sp_post ( bnx2x, RAMROD_CMD_ID_COMMON_STAT_QUERY, 0, phys,
+			NONE_CONNECTION_TYPE );
+	bnx2x_sp_wait_comp ( bnx2x, EVENT_RING_OPCODE_STAT_QUERY );
+
+	/* Wait for the firmware to write the completion counters
+	 * (tstats/ustats echo drv_stats_counter = 0)
+	 */
+	for ( i = 0 ; i < 100 ; i++ ) {
+		if ( ( ( le32_to_cpu ( cnt[2] ) & 0xffff ) != 0xffff ) &&
+		     ( ( le32_to_cpu ( cnt[4] ) & 0xffff ) != 0xffff ) )
+			break;
+		mdelay ( 1 );
+	}
+
+	DBGC ( bnx2x, "BNX2X %p STATS counters x %04x t %04x u %04x c %04x\n",
+	       bnx2x, ( le32_to_cpu ( cnt[0] ) & 0xffff ),
+	       ( le32_to_cpu ( cnt[2] ) & 0xffff ),
+	       ( le32_to_cpu ( cnt[4] ) & 0xffff ),
+	       ( le32_to_cpu ( cnt[6] ) & 0xffff ) );
+	DBGC ( bnx2x, "BNX2X %p STATS port mac_discard %d filter_discard %d "
+	       "brb_trunc %d mf_tag %d pkt_drop %d\n", bnx2x,
+	       le32_to_cpu ( port[0] ), le32_to_cpu ( port[1] ),
+	       le32_to_cpu ( port[2] ), le32_to_cpu ( port[3] ),
+	       le32_to_cpu ( port[4] ) );
+	DBGC ( bnx2x, "BNX2X %p STATS tstorm(q) ucast %d csum_disc %d "
+	       "bcast %d too_big %d mcast %d ttl0 %d no_buff %d\n", bnx2x,
+	       le32_to_cpu ( queue[2] ),	/* rcv_ucast_pkts */
+	       le32_to_cpu ( queue[3] ),	/* checksum_discard */
+	       le32_to_cpu ( queue[6] ),	/* rcv_bcast_pkts */
+	       le32_to_cpu ( queue[7] ),	/* pkts_too_big_discard */
+	       le32_to_cpu ( queue[10] ),	/* rcv_mcast_pkts */
+	       le32_to_cpu ( queue[11] ),	/* ttl0_discard */
+	       ( le32_to_cpu ( queue[12] ) & 0xffff ) ); /* no_buff (le16) */
+	DBGC ( bnx2x, "BNX2X %p STATS ustorm(q) no_buff u %d m %d b %d "
+	       "xstorm(q) sent u %d m %d b %d err_drop %d\n", bnx2x,
+	       le32_to_cpu ( queue[20] ),	/* ucast_no_buff_pkts */
+	       le32_to_cpu ( queue[21] ),	/* mcast_no_buff_pkts */
+	       le32_to_cpu ( queue[22] ),	/* bcast_no_buff_pkts */
+	       le32_to_cpu ( queue[34] ),	/* ucast_pkts_sent */
+	       le32_to_cpu ( queue[35] ),	/* mcast_pkts_sent */
+	       le32_to_cpu ( queue[36] ),	/* bcast_pkts_sent */
+	       le32_to_cpu ( queue[37] ) );	/* error_drop_pkts */
+
+	free_phys ( buf, BNX2X_PAGE_SIZE );
+}
+
 int bnx2x_sp_init ( struct bnx2x_nic *bnx2x ) {
 	int rc;
 

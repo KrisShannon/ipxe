@@ -50,6 +50,7 @@ struct bnx2x_nic;
 #define RAMROD_CMD_ID_COMMON_FUNCTION_START	1
 #define RAMROD_CMD_ID_COMMON_FUNCTION_STOP	2
 #define RAMROD_CMD_ID_COMMON_CFC_DEL		4
+#define RAMROD_CMD_ID_COMMON_STAT_QUERY		6
 
 /* Ethernet (ETH_CONNECTION_TYPE) ramrod command ids */
 #define RAMROD_CMD_ID_ETH_CLIENT_SETUP		1
@@ -66,10 +67,12 @@ struct bnx2x_nic;
 #define EVENT_RING_OPCODE_FUNCTION_START	1
 #define EVENT_RING_OPCODE_FUNCTION_STOP		2
 #define EVENT_RING_OPCODE_CFC_DEL		3
+#define EVENT_RING_OPCODE_STAT_QUERY		5
 #define EVENT_RING_OPCODE_SET_MAC		14
 #define EVENT_RING_OPCODE_CLASSIFICATION_RULES	15
 #define EVENT_RING_OPCODE_FILTERS_RULES		16
 
+extern void bnx2x_stats_query_dump ( struct bnx2x_nic *bnx2x );
 extern int bnx2x_sp_init ( struct bnx2x_nic *bnx2x );
 extern void bnx2x_sp_free ( struct bnx2x_nic *bnx2x );
 extern int bnx2x_func_stop ( struct bnx2x_nic *bnx2x );

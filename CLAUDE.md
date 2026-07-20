@@ -30,6 +30,41 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ae)**: **STATS_QUERY ramrod ported + Linux-side
+  comparison tool added (no custom kernel needed).** (1)
+  bnx2x_stats_query_dump() in bnx2x_sp.c, called at ifclose before
+  rx_diag: posts RAMROD_CMD_ID_COMMON_STAT_QUERY (=6, cid 0, NONE
+  type, data = one page: header@0 {cmd_num=2, drv_stats_counter=0,
+  counters addr regpair} + 2×16B query entries {kind,index,funcID,
+  addr regpair}; PORT query kind=1 → reply@+0x840, QUEUE query
+  kind=0 index=cl_id → reply@+0x880), waits for EQ opcode 5
+  (EVENT_RING_OPCODE_STAT_QUERY) then polls the completion counters
+  block (@+0x800, pre-filled 0xff; fw echoes drv_stats_counter=0
+  per storm: x/t/u/c at dwords 0/2/4/6). New debug lines: "STATS
+  counters/port/tstorm(q)/ustorm(q)". Reply layouts (hsi): tstorm
+  per-port {mac_discard, mac_filter_discard, brb_truncate_discard,
+  mf_tag_discard, packet_drop}; per-queue = tstorm{ucast/bcast/
+  mcast bytes+pkts, checksum/too_big/ttl0/no_buff discards}@0 +
+  ustorm{*_no_buff_pkts @dw20-22}@0x38 + xstorm{*_pkts_sent,
+  error_drop @dw34-37}@0x70. (2) CLIENT_SETUP now ENABLES
+  statistics (general data: statistics_counter_id=cl_id, en_flg=1,
+  zero_flg=1 — offsets 1/2/8; activate_flg@4 confirmed already
+  set). (3) NEW: src/drivers/net/bnx2x/hostdump.c — userspace tool
+  (gcc -O2 -o bnx2xdump hostdump.c; sudo ./bnx2xdump /sys/bus/pci/
+  devices/<addr>/resource0) that mmaps BAR0 on a RUNNING LINUX
+  system and prints the same RXDIAG lines + wide XMAC/NIG/MISC
+  windows — run it against a port with working Linux RX (ethtool -i
+  for the PCI addr; port-0 functions only: 01:00.0 = net0-equiv,
+  03:00.0 = 57810) to capture a known-good state to diff against
+  our output. CAUTION: MSTAT/PRS counters are clear-on-read; may
+  briefly perturb kernel stats. Remove hostdump.c before upstream.
+  Reading the STATS output: tstorm(q) rcv_*_pkts>0 ⇒ frames DID
+  reach TSTORM for our client (then look at u/xstorm + no_buff);
+  all zero + port counters zero ⇒ storm firmware never saw them ⇒
+  back to PRS→TCM. mac_filter_discard>0 ⇒ classification drop.
+  Test: usual DEBUG string, cold boot, ifopen net0, arping,
+  ifclose (STATS lines appear before RXDIAG); same on net4.
+
 - **2026-07-20 (ad)**: **AGG_DATA/IGU_MODE fix did NOT change
   behaviour. But the clean-pipeline 57810 run reproduced the real
   trickle: prs_packets 1 at close with NO runts injected — one

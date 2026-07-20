@@ -330,12 +330,13 @@ static int bnx2x_client_setup ( struct bnx2x_nic *bnx2x ) {
 
 	/* general */
 	d[0x00] = cl_id;			/* client_id */
-	d[0x01] = 0;		/* statistics_counter_id (disabled=0) */
-	d[0x02] = 0;				/* statistics_en_flg */
+	d[0x01] = cl_id;	/* statistics_counter_id (= stats id) */
+	d[0x02] = 1;				/* statistics_en_flg */
 	d[0x04] = 1;				/* activate_flg */
 	d[0x05] = cl_id;			/* sp_client_id */
 	d[0x06] = ( ETH_MAX_MTU & 0xff );	/* mtu (le16) = 1500 */
 	d[0x07] = ( ETH_MAX_MTU >> 8 );
+	d[0x08] = 1;				/* statistics_zero_flg */
 	d[0x09] = bnx2x->pfid;			/* func_id */
 	d[0x0c] = 2;				/* fp_hsi_ver (VER_2) */
 
@@ -679,7 +680,10 @@ void bnx2x_eth_free ( struct bnx2x_nic *bnx2x ) {
 void bnx2x_eth_close ( struct net_device *netdev ) {
 	struct bnx2x_nic *bnx2x = netdev->priv;
 
-	/* Dump RX-path diagnostics before tearing down */
+	/* Query the storm firmware statistics while the connection is
+	 * still up, then dump the RX-path diagnostics
+	 */
+	bnx2x_stats_query_dump ( bnx2x );
 	bnx2x_rx_diag ( bnx2x );
 
 	/* Halt the client (completion on the RX CQ) */
