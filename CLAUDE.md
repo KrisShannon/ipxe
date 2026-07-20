@@ -30,6 +30,34 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (q)**: **BREAKTHROUGH: XMAC RX works — frames die
+  between MAC and BRB.** Corrected MSTAT diag on hardware shows
+  `tx_gtpkt 14 rx_grpkt 7 rx_grmca 7 rx_grfcs 0 xmac_lss 0` with
+  `prs_packets 0` and `brb_full_blocks 0`: the MAC receives clean
+  multicasts (switch LACP/LLDP), nothing reaches BRB/parser. NIG
+  STAT0 counters (incl. brb_discard) are dead on E3 — don't trust
+  their zeros. Ruled out by **host-side init-table simulation**
+  (`scratchpad/initsim.c`, replays bnx2x_fw.h init ops with our exact
+  block/phase sequence + mode flags 0x160d1): the NIG init tables DO
+  set every ingress interface enable (BRB0_OUT_EN=1 PRS_REQ_IN_EN=1
+  PRS_EOP_OUT_EN=1 XCM0_OUT_EN=1 BRB0_PAUSE_IN_EN=1, LLH0_XCM_MASK=4,
+  P0_HDRS_AFTER_BASIC=6 even from the table); PORT4-vs-PORT2 diff
+  shows only QM/PBF TX-side differences. Also ruled out by line-level
+  audit: update_pfc path is DCBX-only (not run by Linux either in
+  plain SF), LLH0_FUNC_EN is MF-only. Remaining suspects: (a) our
+  LLH gate writes (DRV_MASK 0x3f / NOT_MCP 1) not sticking or being
+  re-programmed by the MFW for BMC/NC-SI sharing (rNDC!), (b) XMAC
+  system-side (XLGMII→NIG) stalled so frames count in MSTAT (line
+  side) but never exit the MAC. Added full readback diag to
+  bnx2x_rx_diag: "RXDIAG gates ..." (drv_mask/mf/not_mcp/mf_mode/
+  cls/func_en/hdrs/mac_in/mac_out) and "RXDIAG ifs ..." (brb0_out/
+  prs_req_in/prs_eop_out/drain/llh_fifo_empty/eop_empty/rmp_empty/
+  brb_occ0/xmac_ctrl). Port-0 addresses only. Expected good values:
+  drv_mask 3f, mf 3, not_mcp 1, mf_mode 0, cls 0, func_en 0, hdrs 6,
+  mac_in/out 1, brb0_out/prs_req_in/prs_eop_out 1, drain 0,
+  xmac_ctrl bits0-1 = 3. Test exactly as before (same DEBUG string;
+  ifopen, traffic, ifclose) and paste all five RXDIAG lines.
+
 - **2026-07-20 (p)**: **MSTAT diag offsets corrected before hardware
   test** — the first MSTAT diag commit read the wrong registers. In
   HARDWARE the MSTAT RX counters start at base+0x200

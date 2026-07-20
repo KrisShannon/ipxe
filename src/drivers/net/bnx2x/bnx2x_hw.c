@@ -1461,6 +1461,38 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 		       bnx2x_readl ( bnx2x, ( xmac_base + 0x58 ) ) );
 	}
 
+	/* Read back the NIG ingress-path configuration (port 0
+	 * addresses) to catch writes that did not stick, or state that
+	 * the management firmware has re-programmed behind our back
+	 * (the rNDC BMC shares the port via the MCP ingress path).
+	 */
+	DBGC ( bnx2x, "BNX2X %p RXDIAG gates drv_mask %08x mf %08x not_mcp "
+	       "%08x mf_mode %08x cls %08x func_en %08x hdrs %08x mac_in %08x "
+	       "mac_out %08x\n", bnx2x,
+	       bnx2x_readl ( bnx2x, 0x10244 ),	/* LLH0_BRB1_DRV_MASK */
+	       bnx2x_readl ( bnx2x, 0x16048 ),	/* LLH0_BRB1_DRV_MASK_MF */
+	       bnx2x_readl ( bnx2x, 0x1025c ),	/* LLH0_BRB1_NOT_MCP */
+	       bnx2x_readl ( bnx2x, 0x16024 ),	/* LLH_MF_MODE */
+	       bnx2x_readl ( bnx2x, 0x16080 ),	/* LLH0_CLS_TYPE */
+	       bnx2x_readl ( bnx2x, 0x160fc ),	/* LLH0_FUNC_EN */
+	       bnx2x_readl ( bnx2x, 0x18038 ),	/* P0_HDRS_AFTER_BASIC */
+	       bnx2x_readl ( bnx2x, 0x185ac ),	/* P0_MAC_IN_EN */
+	       bnx2x_readl ( bnx2x, 0x185b0 ) );	/* P0_MAC_OUT_EN */
+	DBGC ( bnx2x, "BNX2X %p RXDIAG ifs brb0_out %d prs_req_in %d "
+	       "prs_eop_out %d drain %d llh_fifo_empty %08x eop_empty %08x "
+	       "rmp_empty %08x brb_occ0 %d xmac_ctrl %08x\n", bnx2x,
+	       bnx2x_readl ( bnx2x, 0x100f8 ),	/* BRB0_OUT_EN */
+	       bnx2x_readl ( bnx2x, 0x100b8 ),	/* PRS_REQ_IN_EN */
+	       bnx2x_readl ( bnx2x, 0x10104 ),	/* PRS_EOP_OUT_EN */
+	       bnx2x_readl ( bnx2x, 0x10060 ),	/* EGRESS_DRAIN0_MODE */
+	       bnx2x_readl ( bnx2x, 0x10548 ),	/* LLH0_FIFO_EMPTY */
+	       bnx2x_readl ( bnx2x, 0x104ec ),	/* INGRESS_EOP_PORT0_EMPTY */
+	       bnx2x_readl ( bnx2x, 0x10530 ),	/* INGRESS_RMP0_DSCR_EMPTY */
+	       bnx2x_readl ( bnx2x, ( 0x60094 +	/* BRB1_PORT_NUM_OCC_BLKS */
+				      ( bnx2x->port * 4 ) ) ),
+	       bnx2x_readl ( bnx2x, ( ( bnx2x->port ? GRCBASE_XMAC1 :
+				        GRCBASE_XMAC0 ) + XMAC_REG_CTRL ) ) );
+
 	/* Read back the USTORM RX producers for our queue zone */
 	for ( i = 0 ; i < 2 ; i++ ) {
 		prods[i] = bnx2x_readl ( bnx2x,
