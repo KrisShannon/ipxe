@@ -1378,6 +1378,20 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 	/* No EEE */
 	bnx2x_writel ( bnx2x, 0, ( xmac_base + XMAC_REG_EEE_CTRL ) );
 
+	/* Force the NIG's latched per-port RX flow-control state back
+	 * to XON.  The NIG block is never reset (the common reset mask
+	 * deliberately excludes it to preserve the management path), so
+	 * an XOFF latched during a previous driver's lifetime - e.g.
+	 * the vendor UEFI driver being disconnected mid-flow - silently
+	 * blocks all ingress forever.  The XON indication is sent on
+	 * the RISING EDGE of PFC_CTRL_HI bit 1, so we must explicitly
+	 * toggle it (Linux does this in bnx2x_prev_unload_close_mac and
+	 * bnx2x_set_xmac_rxtx: "Send an indication to change the state
+	 * in the NIG back to XON").
+	 */
+	bnx2x_writel ( bnx2x, 0x0, ( xmac_base + XMAC_REG_PFC_CTRL_HI ) );
+	bnx2x_writel ( bnx2x, 0x2, ( xmac_base + XMAC_REG_PFC_CTRL_HI ) );
+
 	/* Enable TX and RX */
 	bnx2x_writel ( bnx2x, ( XMAC_CTRL_REG_TX_EN | XMAC_CTRL_REG_RX_EN ),
 		       ( xmac_base + XMAC_REG_CTRL ) );
@@ -1509,6 +1523,13 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 				      ( bnx2x->port * 4 ) ) ),
 	       bnx2x_readl ( bnx2x, ( ( bnx2x->port ? GRCBASE_XMAC1 :
 				        GRCBASE_XMAC0 ) + XMAC_REG_CTRL ) ) );
+	DBGC ( bnx2x, "BNX2X %p RXDIAG sts rx_macfifo_empty %08x int0 %08x "
+	       "int1 %08x prty0 %08x prty1 %08x\n", bnx2x,
+	       bnx2x_readl ( bnx2x, 0x18570 ),	/* P0_RX_MACFIFO_EMPTY */
+	       bnx2x_readl ( bnx2x, 0x103b0 ),	/* NIG_INT_STS_0 */
+	       bnx2x_readl ( bnx2x, 0x103c0 ),	/* NIG_INT_STS_1 */
+	       bnx2x_readl ( bnx2x, 0x183bc ),	/* NIG_PRTY_STS_0 */
+	       bnx2x_readl ( bnx2x, 0x183cc ) );	/* NIG_PRTY_STS_1 */
 
 	/* Read back the USTORM RX producers for our queue zone */
 	for ( i = 0 ; i < 2 ; i++ ) {

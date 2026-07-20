@@ -30,6 +30,41 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (s)**: **PRIME SUSPECT FOUND: latched NIG XOFF —
+  fix implemented (PFC_CTRL_HI XON toggle), awaiting hardware
+  test.** The guaranteed-traffic test settled it: 119 good frames at
+  the MAC (36 uca / 49 bca / 34 mca, grpok 119, no pause/control
+  frames) and STILL prs_packets 0 with every gate/enable/FIFO status
+  perfect ⇒ frames die at the MAC→NIG boundary before the LLH FIFO.
+  Root cause theory: the NIG per-port RX flow-control state is a
+  LATCH, and the NIG is never reset (reset_common's 0xd3ffff7f
+  deliberately excludes RST_NIG bit 7 to keep the MCP/BMC path
+  alive). The vendor UEFI driver epoch (or a BRB soft-reset around
+  the live NIG) left port 0 latched XOFF; an XOFF'd port drops all
+  ingress silently. Linux clears this on EVERY load in
+  bnx2x_prev_unload_close_mac (E3 branch): rising-edge toggle of
+  XMAC_REG_PFC_CTRL_HI bit 1 = "Send an indication to change the
+  state in the NIG back to XON" (also done in bnx2x_set_xmac_rxtx).
+  We only ever wrote the constant 0x2 — no guaranteed edge. Fix in
+  bnx2x_xmac_enable: after pause/PFC config, write PFC_CTRL_HI 0x0
+  then 0x2 to force the rising edge, before enabling TX/RX. Also
+  added "RXDIAG sts" line: P0_RX_MACFIFO_EMPTY (0x18570), NIG
+  INT_STS_0/1 (0x103b0/0x103c0), NIG_PRTY_STS_0/1 (0x183bc/0x183cc).
+  Side findings from the RMP dump: MFW rules = dest-MAC
+  4c:76:25:ba:93:db (management MAC, port MAC minus 1) + UDP ports
+  67/68/547 (DHCP/DHCPv6 → the MFW may steal DHCP replies for its
+  own management DHCP! watch for this if DHCP still fails once
+  ARP/ping RX works) + unknown regs 0x1023c/0x10240 = 0x0601c04a.
+  Switch-side test observations: switch received only 6 of 18 iPXE
+  TX frames (the untagged IPv6 RS multicasts) — tagged TX (vcreate
+  602 DHCP discovers) never counted by the switch: check whether
+  VLAN 602 is still a tagged member of the test port (it may have
+  been configured on the old port-channel only). Switch also reports
+  "PHY XS TX Status: Down" for the port — unexplained; revisit if
+  problems remain after the XON fix. Test: same DEBUG string, ifopen
+  net0, arping/broadcast-ping from a host on the port's VLAN,
+  ifclose; success = ifstat RX>0 / prs_packets>0.
+
 - **2026-07-20 (r)**: **Readback perfect — new working theory: the
   datapath is probably FINE and the test had no deliverable
   traffic.** Hardware readback showed every gate/enable at its
