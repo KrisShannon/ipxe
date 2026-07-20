@@ -30,6 +30,38 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (f)**: **Phase 3 hardware init sequences ported**
+  (`bnx2x_hw.c`/`bnx2x_hw.h`, ~1100 lines): `ifopen` now runs, between
+  LOAD_REQ and LOAD_DONE: IGU mode check (+force-normal) + CAM scan →
+  common init (reset_common, per-path PF master-disable via pretend,
+  PXP arbiter from PCIe MPS/MRRS, endianness, ILT page sizes, E2/E3
+  timers workaround [whole-ILT zero+valid under pretend path+6, TM
+  full range for vnic3], PXP2/ATC done-polls, all block init-tables
+  incl. **SEM storm firmware load via OP_ZP**, QM ptr table + soft
+  reset, VFC memory reset, CFC init-done polls, attention masking) →
+  port init (per-port blocks, BRB guaranteed for 4-port, PRS/NIG hdr
+  config for SF, AEU masks, pause enable) → func init (ILT lines:
+  1×32K CDU ctx page + 16×4K QM pages [qm_cid_count=1024], NIC mode,
+  IGU function enable single-ISR, per-func blocks, producer memory
+  zeroing + SB cleanup commands for all CAM-discovered SBs + DSB).
+  Close = MCP unload + memory free (chip left initialised-but-idle;
+  next open does full COMMON_CHIP init again after our unload drops
+  load count to zero). **Deliberate omissions** (documented in file
+  header): FLR cleanup (we always follow a full chip reset — matters
+  only if a second port is opened without one, cold boot covers it),
+  parity enable, fan-failure PHY-type detection (warns if a board
+  requests it), PHY common init (LFA assumed; Linux itself skips it
+  when shmem2 has lfa_host_addr, true for bc 7.12.4/7.14.18 — verify).
+  Register constants script-extracted verbatim from Linux v6.6
+  headers into bnx2x_hw.h. **NOT yet hardware-tested.** Test:
+  `ifopen net0` under `DEBUG=bnx2x:3,bnx2x_init:3,bnx2x_hw:3`
+  (open takes seconds now: ~250 KB PRAM via single register writes).
+  Watch for: PXP2 CFG/RD_INIT/ATC/CFC done-poll failures, MCP
+  load-done timeout (would suggest storm fw unhappy), link staying
+  up, ifclose clean, warm reboot to OS driver, and open/close/open
+  again (second open re-runs COMMON_CHIP — checks re-init after our
+  own unload). Next: phase 4 datapath (status blocks, SPQ ramrods,
+  client setup, TX/RX rings).
 - **2026-07-20 (e)**: Phase-3 infrastructure validated on hardware: probe
   shows `storm firmware 7.13.21.0 (1804 init ops, 5471 dwords data, 387
   IROs)` on all six functions. Init mode flags confirmed: rNDC 57840 =
@@ -237,10 +269,11 @@ mac[2]=lower>>24, mac[3]=lower>>16, mac[4]=lower>>8, mac[5]=lower`.
    lock/NVRAM-arb release (`MISC_REG_DRIVER_CONTROL_x`, `MCPR_NVM_SW_ARB`),
    MCP access-lock release, UNDI-residue detection + MAC close +
    `bnx2x_prev_unload_common` chip reset, FLR path, path marking.
-3. **Phase 3 — hardware init + storm firmware**: embed/parse fw blob, port the
-   init-ops interpreter, common/port/function init sequences (Linux
-   `bnx2x_init_hw_{common,port,func}`), PXP arbiter/ILT setup for a minimal
-   single-queue configuration, interrupt-free (polled) status block.
+3. **Phase 3 — hardware init + storm firmware (CODE DONE, needs HW
+   validation)**: fw blob embedded + interpreter + full
+   common/port/function init sequences ported (see status entries).
+   Polled status block setup itself is part of phase 4 (it belongs to
+   nic_init/datapath in Linux terms).
 4. **Phase 4 — datapath**: one TX queue + one RX queue, client setup via
    ramrods on the slowpath channel (SPQ), leading connection only. Polled RX
    completion queue. This mirrors what other iPXE drivers do with vastly less
@@ -275,7 +308,7 @@ must be listed explicitly.** The canonical set for hardware testing is
 currently:
 
 ```
-DEBUG=bnx2x:3,bnx2x_init:3
+DEBUG=bnx2x:3,bnx2x_init:3,bnx2x_hw:3
 ```
 
 (Extend this list whenever a new .c file is added to the driver — and call

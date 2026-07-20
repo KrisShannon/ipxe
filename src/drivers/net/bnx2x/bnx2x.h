@@ -260,6 +260,16 @@ struct bnx2x_nic {
 	uint32_t *gunzip_buf;
 	/** Length of last decompressed block (in dwords) */
 	uint32_t gunzip_outlen;
+	/** IGU default status block id */
+	unsigned int igu_dsb_id;
+	/** First non-default IGU status block id */
+	unsigned int igu_base_sb;
+	/** Number of non-default IGU status blocks */
+	unsigned int igu_sb_cnt;
+	/** CDU context memory (one 32kB page, while open) */
+	void *cdu_context;
+	/** QM queue-pointer memory (sixteen 4kB pages, while open) */
+	void *qm_mem;
 };
 
 /**
@@ -286,6 +296,32 @@ static inline void bnx2x_writel ( struct bnx2x_nic *bnx2x, uint32_t value,
 				  uint32_t offset ) {
 
 	writel ( value, ( bnx2x->regs + offset ) );
+}
+
+/**
+ * Read MCP shared memory location
+ *
+ * @v bnx2x		bnx2x device
+ * @v offset		Offset within shared memory
+ * @ret value		Value
+ */
+static inline uint32_t bnx2x_shmem_readl ( struct bnx2x_nic *bnx2x,
+					   uint32_t offset ) {
+
+	return bnx2x_readl ( bnx2x, ( bnx2x->shmem_base + offset ) );
+}
+
+/**
+ * Write MCP shared memory location
+ *
+ * @v bnx2x		bnx2x device
+ * @v value		Value
+ * @v offset		Offset within shared memory
+ */
+static inline void bnx2x_shmem_writel ( struct bnx2x_nic *bnx2x,
+					uint32_t value, uint32_t offset ) {
+
+	bnx2x_writel ( bnx2x, value, ( bnx2x->shmem_base + offset ) );
 }
 
 #endif /* _BNX2X_H */

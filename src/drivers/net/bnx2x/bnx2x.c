@@ -33,6 +33,7 @@ FILE_SECBOOT ( PERMITTED );
 #include <ipxe/netdevice.h>
 #include "bnx2x.h"
 #include "bnx2x_init.h"
+#include "bnx2x_hw.h"
 
 /** @file
  *
@@ -43,32 +44,6 @@ FILE_SECBOOT ( PERMITTED );
  * MCP-maintained link state.  No datapath yet.
  *
  */
-
-/**
- * Read MCP shared memory location
- *
- * @v bnx2x		bnx2x device
- * @v offset		Offset within shared memory
- * @ret value		Value
- */
-static uint32_t bnx2x_shmem_readl ( struct bnx2x_nic *bnx2x,
-				    uint32_t offset ) {
-
-	return bnx2x_readl ( bnx2x, ( bnx2x->shmem_base + offset ) );
-}
-
-/**
- * Write MCP shared memory location
- *
- * @v bnx2x		bnx2x device
- * @v value		Value
- * @v offset		Offset within shared memory
- */
-static void bnx2x_shmem_writel ( struct bnx2x_nic *bnx2x, uint32_t value,
-				 uint32_t offset ) {
-
-	bnx2x_writel ( bnx2x, value, ( bnx2x->shmem_base + offset ) );
-}
 
 /**
  * Read multi-function configuration location
@@ -495,15 +470,14 @@ static int bnx2x_mcp_unload ( struct bnx2x_nic *bnx2x ) {
 }
 
 /**
- * Load driver instance via MCP
+ * Request driver load from MCP
  *
  * @v bnx2x		bnx2x device
  * @ret rc		Return status code
  */
-static int bnx2x_mcp_load ( struct bnx2x_nic *bnx2x ) {
+static int bnx2x_mcp_load_request ( struct bnx2x_nic *bnx2x ) {
 	uint32_t func_mb = BNX2X_SHMEM_FUNC_MB ( bnx2x->fw_mb_idx );
 	uint32_t load_code;
-	uint32_t response;
 	int rc;
 
 	/* Resume mailbox sequence numbering from current state */
@@ -551,15 +525,23 @@ static int bnx2x_mcp_load ( struct bnx2x_nic *bnx2x ) {
 		 ( load_code == FW_MSG_CODE_DRV_LOAD_FUNCTION ) ? "function" :
 		 "unknown" ) );
 
-	/* Hardware initialisation according to load level (common /
-	 * port / function) will be performed here in phase 3.
-	 */
+	return 0;
+}
+
+/**
+ * Complete driver load via MCP
+ *
+ * @v bnx2x		bnx2x device
+ * @ret rc		Return status code
+ */
+static int bnx2x_mcp_load_done ( struct bnx2x_nic *bnx2x ) {
+	uint32_t func_mb = BNX2X_SHMEM_FUNC_MB ( bnx2x->fw_mb_idx );
+	uint32_t response;
 
 	/* Complete load */
 	response = bnx2x_fw_command ( bnx2x, DRV_MSG_CODE_LOAD_DONE, 0 );
 	if ( ! response ) {
 		DBGC ( bnx2x, "BNX2X %p MCP load-done timed out\n", bnx2x );
-		bnx2x_mcp_unload ( bnx2x );
 		return -EBUSY;
 	}
 
@@ -580,14 +562,35 @@ static int bnx2x_open ( struct net_device *netdev ) {
 	struct bnx2x_nic *bnx2x = netdev->priv;
 	int rc;
 
-	/* Perform MCP load handshake */
-	if ( ( rc = bnx2x_mcp_load ( bnx2x ) ) != 0 )
+	/* Determine IGU configuration */
+	if ( ( rc = bnx2x_igu_info ( bnx2x ) ) != 0 )
 		return rc;
+
+	/* Request load from MCP */
+	if ( ( rc = bnx2x_mcp_load_request ( bnx2x ) ) != 0 )
+		return rc;
+
+	/* Initialise hardware (including storm firmware download) */
+	if ( ( rc = bnx2x_hw_init ( bnx2x ) ) != 0 )
+		goto err_hw_init;
+
+	/* Complete load */
+	if ( ( rc = bnx2x_mcp_load_done ( bnx2x ) ) != 0 )
+		goto err_load_done;
 
 	/* No datapath yet; refresh link state */
 	bnx2x_check_link ( netdev );
 
 	return 0;
+
+ err_load_done:
+	bnx2x_hw_free ( bnx2x );
+ err_hw_init:
+	/* Abort the load in the MCP's eyes */
+	bnx2x_fw_command ( bnx2x, DRV_MSG_CODE_UNLOAD_REQ_WOL_MCP, 0 );
+	bnx2x_fw_command ( bnx2x, DRV_MSG_CODE_UNLOAD_DONE,
+			   DRV_MSG_CODE_UNLOAD_SKIP_LINK_RESET );
+	return rc;
 }
 
 /**
@@ -600,6 +603,9 @@ static void bnx2x_close ( struct net_device *netdev ) {
 
 	/* Perform MCP unload handshake */
 	bnx2x_mcp_unload ( bnx2x );
+
+	/* Free hardware init memory */
+	bnx2x_hw_free ( bnx2x );
 }
 
 /**
