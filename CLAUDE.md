@@ -30,6 +30,32 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (z)**: **XMAC FULLY EXONERATED: MACLB fails even on
+  verbatim vendor XMAC state (no reset, all registers vendor's own,
+  wide 0x00-0x1fc window recorded and identical).** Every reset
+  combination has now failed identically: vendor XMAC+vendor NIG
+  (runs ≤t), reset XMAC+vendor NIG (u), reset XMAC+reset NIG (v-x),
+  vendor XMAC+reset NIG (y). The XMAC↔NIG boundary never passes an
+  RX frame for us in ANY state while TX always works and the vendor
+  UEFI driver's RX worked. Wide-dump extras (vendor values, FYI):
+  +0x88/8c = 01-80-C2-00-00-01 pause DA, +0xdc = 01380000
+  (EEE-timer-ish), +0xe0..0xfc = port MAC ×4, +0x100 = 000a93dc.
+  LBTEST prs=2 exactly this run (clean). PORT4MODE straps are NOT
+  touched by init tables (sim-verified) so vendor values persist.
+  **NEXT TEST (no rebuild needed — current build): run the SAME
+  procedure on the 57810 (2-port mode, different board path, full
+  Linux-identical XMAC bring-up since the 4-port skip doesn't apply
+  there): cold boot, ifopen net4 (or net5; the two 57810 ports),
+  MACLB line appears automatically with no wire traffic needed,
+  ifclose, paste everything.** MACLB passes on 57810 ⇒ fault is
+  4-port/rNDC-specific (CORE_PORT_MODE semantics, 4-port XLGMII
+  muxing) ⇒ attack that. MACLB fails on 57810 too ⇒ our common/port
+  init breaks XMAC→NIG RX on ALL E3 ⇒ re-diff init_hw_common/port
+  against Linux yet again with fresh eyes (esp. blocks between MISC
+  and NIG), and consider porting bnx2x's full first-load ordering
+  (bnx2x_nic_load sequence) more faithfully. Also record which
+  switch port the 57810s are cabled to for a wire test.
+
 - **2026-07-20 (y)**: **XMACPRE vs our config diff came back CLEAN —
   the vendor XMAC registers (0x00-0x7c) are IDENTICAL to ours**
   (incl. unnamed MODE=0x40 @+0x08, RX_CTRL=0x40c @+0x30,
