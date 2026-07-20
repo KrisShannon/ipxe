@@ -30,6 +30,30 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (c)**: **Phase 2 validated on real hardware** (log excerpt
+  below). Answers to the phase-2 hardware questions:
+  - (a) **Link survives the load/unload handshake**: `ifstat` shows
+    `Link:up` after repeated `ifopen`/`ifclose` cycles (LFA + no PHY
+    touch + UNLOAD_DONE with SKIP_LINK_RESET all behaving).
+  - (b) **Cold-boot load level is `common+chip` (0x10130000)** on the
+    57840 rNDC, and again on re-open after a full unload (our unload
+    drops the MCP load count back to zero, so every open gets
+    COMMON_CHIP — phase 3 must therefore always run the full
+    common+port+function init sequence).
+  - (c) **Both cards are in forced single-function mode** (`feat
+    00000100` = FORCE_SF): no NPAR on this system, port MACs are the
+    right MACs, no outer-VLAN complications for the datapath. mf_cfg
+    base resolves via shmem2 to 003c73b4. (MF MAC path in our code is
+    thus unexercised — revisit only if a test system with NPAR shows up.)
+  - (d) **Warm reboot into the OS bnx2x driver after our load/unload
+    cycle: STILL UNTESTED** — do this check next hardware session.
+  - fw_seq resume confirmed working (0000 on cold boot, 0006 on second
+    open; MCP echoes each sequence number correctly).
+  - Unload-request on a never-loaded function returns UNLOAD_COMMON
+    (0x20100000) — recovery handshake is safe to run unconditionally.
+  - Note: ~3 TX attempts (ENOTSUP, harmless) appear after each ifopen —
+    iPXE background traffic (likely IPv6 router solicitation retries);
+    a useful early smoke test for the phase-4 TX path.
 - **2026-07-20 (b)**: **Phase 1 validated on real hardware.** Boot of the
   phase-1 build on the target system probed all six functions successfully
   (4× BCM57840 rNDC + 2× BCM57810), correct per-port MACs, all links up.
@@ -309,6 +333,33 @@ BNX2X 0x70f5c410 link up (status 40900275)
 
 (`bc` values are hex in this build: 7.c.4 = 7.12.4, 7.e.12 = 7.14.18.
 `40900275` = link up, 10G FD, AN enabled+complete.)
+
+### 2026-07-20 — phase-2 build, MCP handshake on 57840 rNDC pf0 (net0)
+
+```
+iPXE> ifopen net0
+BNX2X 0x70f54470 initial fw_seq 0000
+BNX2X 0x70f54470 MCP command 20010001 param 00000000
+BNX2X 0x70f54470 MCP response 20100001
+BNX2X 0x70f54470 MCP unload level 20100000
+BNX2X 0x70f54470 MCP command 21000002 param 00000002
+BNX2X 0x70f54470 MCP response 21100002
+BNX2X 0x70f54470 MCP command 10000003 param 0000100a
+BNX2X 0x70f54470 MCP response 10130003
+BNX2X 0x70f54470 MCP load level 10130000 (common+chip)
+BNX2X 0x70f54470 MCP command 11000004 param 00000000
+BNX2X 0x70f54470 MCP response 11100004
+iPXE> ifclose net0
+BNX2X 0x70f54470 MCP command 20010005 param 00000000
+BNX2X 0x70f54470 MCP response 20100005
+BNX2X 0x70f54470 MCP unload level 20100000
+BNX2X 0x70f54470 MCP command 21000006 param 00000002
+BNX2X 0x70f54470 MCP response 21100006
+```
+
+(Second open resumed fw_seq at 0006 and again got COMMON_CHIP. Link
+stayed up throughout; probe showed forced-SF on all six functions,
+mf_cfg base 003c73b4 via shmem2.)
 
 ## Session/workflow notes
 
