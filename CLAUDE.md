@@ -271,6 +271,123 @@ mac[2]=lower>>24, mac[3]=lower>>16, mac[4]=lower>>8, mac[5]=lower`.
 - Firmware blob: redistributable per linux-firmware WHENCE; keep it in a
   separate file with its own licence note when we get there.
 
+## Phase 4 implementation notes (design pack — extracted 2026-07-20)
+
+All structure sizes/offsets below were computed with the offsetof host
+tool against Linux v6.6 `bnx2x_hsi.h`; constants from `bnx2x_hsi.h` /
+`bnx2x_fw_defs.h` / `bnx2x.h`. Storm RAM accesses go through BAR0 at
+`BAR_{U,C,X,T}STRORM_INTMEM` = `0x400000/0x410000/0x420000/0x430000`
+plus IRO-derived offsets (IRO array is already embedded/decoded;
+`bnx2x_iro(n)`).
+
+**Memory objects (all page-aligned DMA, alloc at open):**
+- Default SB: `struct host_sp_status_block` size 0x38 (atten block
+  0x10, then `hc_sp_status_block` sp_sb: index_values[16] u16 @+0x00,
+  running_index @+0x20). Poll `index_values[HC_SP_INDEX_EQ_CONS=7]`
+  for EQ, `[HC_SP_INDEX_ETH_DEF_CONS=3]` for eth def consumer.
+- Fastpath SB: `host_hc_status_block_e2` size 0x40
+  (`hc_status_block_e2`: index_values[8] u16 @0x00, running_index
+  @0x10). RX CQ cons = index 1 (`HC_INDEX_ETH_RX_CQ_CONS`), TX CQ
+  cons COS0 = index 5.
+- EQ: 1 page of 256 × `union event_ring_elem` (0x10 each); msg
+  opcode field selects `event_ring_opcode` (FUNCTION_START=1,
+  FUNCTION_STOP=2, CFC_DEL=3, SET_MAC=14, CLASSIFICATION_RULES=15,
+  FILTERS_RULES=16). Last element = next-page pointer (Linux uses
+  NUM_EQ_PAGES=1, EQ_DESC_CNT_PAGE=256, usable 255).
+- SPQ: 1 page, 256 × `struct eth_spe` (0x10: spe_hdr conn_and_cmd
+  @0x00, type @0x04, then data hi/lo regpair).
+- Ramrod data buffer (a few hundred bytes, one at a time):
+  `function_start_data` 0x30, `client_init_ramrod_data` 0x78
+  (general @0x00, rx @0x10, tx @0x60), `eth_classify_rules_ramrod_data`
+  0x108 (header 0x8 + rules; mac cmd entry 0x10).
+
+**SB/EQ/SPQ setup (bnx2x_init_def_sb / init_eq_ring / init_sp_ring):**
+- SP SB config: write zeroed-then-filled `hc_sp_status_block_data`
+  (size 0x10: host_sb_addr lo/hi @0x00, version/pf_id/vnic fields
+  @0x0c u32) as u32s to `BAR_CSTRORM_INTMEM +
+  CSTORM_SP_STATUS_BLOCK_DATA_OFFSET(pf)` = IRO[146]; SB itself
+  zeroed at CSTORM_SP_STATUS_BLOCK_OFFSET(pf) = IRO[145] (+SYNC block
+  IRO[148] zeroed too). pf here = pfid.
+- Fastpath SB (fw_sb_id = igu_base_sb? For E2 fw sb id == igu sb id):
+  `hc_status_block_data_e2` size 0x40 = hc_index_data[8] (2 bytes:
+  flags/timeout) @0x00 + `hc_sb_data` common @0x10 (host_sb_addr
+  @+0x00, ..., p_func @+0x18, same_igu_sb_1b @+0x1c, state last) →
+  written to CSTORM_STATUS_BLOCK_DATA_OFFSET(sb) = IRO[137]; SB
+  zeroed at IRO[136], sync block IRO[141].
+- EQ: `event_ring_data` (0x10; base_addr @0x00) to BAR_CSTRORM +
+  CSTORM_EVENT_RING_DATA_OFFSET(pf)=IRO[157] (note pf>>1/pf&1 m1/m2
+  split); producer (=NUM usable, init 1?) to
+  CSTORM_EVENT_RING_PROD_OFFSET(pf)=IRO[158]. Linux sets prod to
+  NUM_EQ_DESC-1? (check bnx2x_init_eq_ring: bp->eq_prod =
+  NUM_EQ_DESC? verify at impl time in bnx2x_main.c).
+- SPQ: page base to XSTORM_SPQ_PAGE_BASE_OFFSET(func)=IRO[30] (wr64),
+  prod to XSTORM_SPQ_PROD_OFFSET(func)=IRO[31] (u16/u32?). SPE post
+  (bnx2x_sp_post): hdr.conn_and_cmd_data = cpu_to_le32((command <<
+  SPE_HDR_CMD_ID_SHIFT=24) | HW_CID(cid)); HW_CID(bp,cid) =
+  (BP_PORT<<23 | BP_VN<<17 | cid) — verify macro; hdr.type =
+  le16((conn_type << SPE_HDR_CONN_TYPE_SHIFT=0) | (function <<
+  SPE_HDR_FUNCTION_ID_SHIFT=8)); data regpair hi/lo = ramrod buffer
+  phys. After writing SPE, ++prod and REG_WR16 prod to
+  XSTORM_SPQ_PROD_OFFSET.
+- Ramrod cmd IDs: common (NONE_CONNECTION_TYPE=8): FUNCTION_START=1,
+  FUNCTION_STOP=2, CFC_DEL=4. eth (ETH_CONNECTION_TYPE=0):
+  CLIENT_SETUP=1, HALT=2, TX_QUEUE_SETUP=4, TERMINATE=7,
+  CLASSIFICATION_RULES=9, FILTER_RULES=10, MULTICAST_RULES=11,
+  SET_MAC=13.
+- Completion: poll sp_sb index_values[7] (EQ cons); EQ element:
+  `event_ring_msg` { u8 opcode; ... data }. After consuming, write
+  new EQ prod to CSTORM_EVENT_RING_PROD_OFFSET and ack IGU (dsb, op
+  IGU_INT_NOP, update 1) — likely optional when polling.
+
+**function_start_data (0x30)**: function_mode=0 (SF), sd_vlan_tag=0,
+path_id=path, network_cos_mode=0 (OVERRIDE_COS?)/static — check Linux
+bnx2x_func_send_start; gate en / tunnels zero.
+
+**Datapath (4b):**
+- RX BD ring: `eth_rx_bd` 8 bytes {addr_lo,addr_hi? actually
+  addr hi/lo pair}; page of 512 minus last 2 = next-page pointers.
+  CQ: `union eth_rx_cqe` 0x40 (!, E2 = 64 bytes incl. padding? size
+  computed 0x40); NUM pages ≥1, last element next-page. RX producers
+  (bd_prod, cqe_prod, sge_prod as `ustorm_eth_rx_producers` 0x8)
+  written as u32s to BAR_USTRORM + USTORM_RX_PRODS_E2_OFFSET(qzone) =
+  IRO[217], qzone = client id for our SF single queue.
+- TX: chain of 0x10 BDs: `eth_tx_start_bd` + `eth_tx_parse_bd_e2`
+  per packet (nbd=2+frags), last BD of page = next pointer. Doorbell:
+  BAR2 (map at probe! `pci_bar_start(pci, PCI_BASE_ADDRESS_2)`),
+  offset = cid * (1<<BNX2X_DB_SHIFT=3)?? — Linux BNX2X_DB_SHIFT 3 but
+  doorbell offset macro is `BXE`-style `DOORBELL(bp, cid, val)
+  REG_WR_RELAXED(bp, bp->doorbells + (bp->db_size * cid), val)` with
+  db_size = 1<<7? **verify DOORBELL macro + db_size at impl time**
+  (bnx2x.h line ~768: db_size = (1 << BNX2X_DB_SHIFT) where SHIFT=7
+  in some trees, 3 in others — read the v6.6 source carefully).
+  Doorbell value: `struct doorbell_set_prod` (header + zeros + prod).
+- Client setup: fill client_init_ramrod_data: general (client_id,
+  statistics off, sb id, sp_client flags), rx (BD/CQE page addrs,
+  buffer size, cache line log, status block index HC_INDEX 1,
+  approx-mcast off, vmqueue mode off), tx (page addr, sb index 5) →
+  SPE ETH_CLIENT_SETUP cid 0. Then classification MAC add via
+  CLASSIFICATION_RULES ramrod (classify_rules_ramrod_data: header
+  {rule_cnt=1}, mac rule {header {cmd ADD, client, func}, mac hi/mid/
+  lo, vlan? }) and FILTER_RULES for rx-mode (accept unicast+broadcast
+  +all-multicast? for LACP we need the slow-protocols multicast —
+  accept-all-multicast simplest).
+- CIDs: leading eth connection cid 0; HW cid via HW_CID macro. The
+  CDU context for cid 0 must be filled? Linux writes eth context via
+  bnx2x_set_ctx_validation + storm setup in queue setup ramrod using
+  cxt (cdu_context page): set validation bytes via
+  bnx2x_set_ctx_validation(bp, cxt, cid) — port from bnx2x_cmn.c
+  (uses CDU_RSRVD_VALUE macros) — small.
+
+**Linux functions to port for 4a/4b** (bnx2x_main.c/bnx2x_cmn.c
+unless noted): bnx2x_init_def_sb, bnx2x_init_eq_ring,
+bnx2x_init_sp_ring, bnx2x_sp_post, bnx2x_eq_int (skeleton),
+bnx2x_func_send_start (bnx2x_sp.c, just the data fill),
+bnx2x_set_ctx_validation (cmn), rx/tx ring init from bnx2x_cmn.c
+(bnx2x_init_rx_rings/tx_rings, next-page pointer layout),
+bnx2x_update_rx_prod, and the queue-setup/classification data fills
+from bnx2x_sp.c (bnx2x_q_fill_init_*, bnx2x_set_one_mac_e2 — port the
+*data structure fills* directly, skip the object framework).
+
 ## Roadmap
 
 1. **Phase 1 — skeleton (DONE, needs HW validation)**: probe, chip id, shmem,
