@@ -30,6 +30,20 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (g)**: **Phase 3 VALIDATED ON HARDWARE.** Full
+  common+port+function init ran to completion on the 57840 rNDC pf0:
+  all block init tables executed (op ranges logged and sane), storm
+  firmware decompressed+loaded into all four SEMs, no done-poll
+  failures (PXP2 CFG/RD_INIT, ATC, CFC LL/AC/CAM all passed silently),
+  MCP accepted LOAD_DONE, **link stayed up at 10G throughout**, and
+  ifclose/ifopen repeated the whole COMMON_CHIP cycle successfully
+  (fw_seq resumed at 0006). IGU CAM scan: dsb 0, base sb 1, cnt 63 —
+  63 non-default SBs for pf0 as MFW-provisioned. PXP arbiter: read
+  order 3 (MRRS 4096?) write order 1 (MPS 256). Open now takes a few
+  seconds (PRAM via single writes) — acceptable. Warm-reboot-to-OS
+  check still outstanding. **Next: phase 4 datapath** — status blocks
+  (def SB via CSTORM IROs), SPQ + EQ for ramrods, function-start,
+  client setup, RX/TX rings + doorbells (needs BAR2 doorbell map).
 - **2026-07-20 (f)**: **Phase 3 hardware init sequences ported**
   (`bnx2x_hw.c`/`bnx2x_hw.h`, ~1100 lines): `ifopen` now runs, between
   LOAD_REQ and LOAD_DONE: IGU mode check (+force-normal) + CAM scan →
