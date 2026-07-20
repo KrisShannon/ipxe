@@ -32,6 +32,7 @@ FILE_SECBOOT ( PERMITTED );
 #include <ipxe/ethernet.h>
 #include <ipxe/netdevice.h>
 #include "bnx2x.h"
+#include "bnx2x_init.h"
 
 /** @file
  *
@@ -42,31 +43,6 @@ FILE_SECBOOT ( PERMITTED );
  * MCP-maintained link state.  No datapath yet.
  *
  */
-
-/**
- * Read GRC register
- *
- * @v bnx2x		bnx2x device
- * @v offset		Register offset within BAR0
- * @ret value		Register value
- */
-static uint32_t bnx2x_readl ( struct bnx2x_nic *bnx2x, uint32_t offset ) {
-
-	return readl ( bnx2x->regs + offset );
-}
-
-/**
- * Write GRC register
- *
- * @v bnx2x		bnx2x device
- * @v value		Value
- * @v offset		Register offset within BAR0
- */
-static void bnx2x_writel ( struct bnx2x_nic *bnx2x, uint32_t value,
-			   uint32_t offset ) {
-
-	writel ( value, ( bnx2x->regs + offset ) );
-}
 
 /**
  * Read MCP shared memory location
@@ -714,6 +690,10 @@ static int bnx2x_probe ( struct pci_device *pci ) {
 	/* Detect multi-function mode */
 	if ( ( rc = bnx2x_detect_mf ( bnx2x ) ) != 0 )
 		goto err_shmem;
+
+	/* Compute init mode flags and report firmware identity */
+	bnx2x_set_modes_bitmap ( bnx2x );
+	bnx2x_fw_info ( bnx2x );
 
 	/* Fetch MAC address */
 	if ( ( rc = bnx2x_fetch_mac ( bnx2x ) ) != 0 )

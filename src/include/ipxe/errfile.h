@@ -247,6 +247,7 @@ FILE_SECBOOT ( PERMITTED );
 #define ERRFILE_dwusb		     ( ERRFILE_DRIVER | 0x00dd0000 )
 #define ERRFILE_dwgpio		     ( ERRFILE_DRIVER | 0x00de0000 )
 #define ERRFILE_bnx2x		     ( ERRFILE_DRIVER | 0x00df0000 )
+#define ERRFILE_bnx2x_init	     ( ERRFILE_DRIVER | 0x00e00000 )
 
 #define ERRFILE_aoe			( ERRFILE_NET | 0x00000000 )
 #define ERRFILE_arp			( ERRFILE_NET | 0x00010000 )

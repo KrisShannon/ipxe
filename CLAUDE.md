@@ -30,6 +30,22 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (d)**: Phase 3 infrastructure: storm firmware
+  `bnx2x-e2-7.13.21.0.fw` (sha256 7ee27cf1...) embedded via generator
+  `src/drivers/net/bnx2x/bnx2x_mkfw.py` → committed `bnx2x_fw.h` (init_data
+  LE-swapped, init_ops decoded to (op<<24|offset, data) u32 pairs,
+  init_ops_offsets u16, IRO decoded to structs, SEM int-table/pram kept as
+  raw gzip streams). Init-ops interpreter ported (`bnx2x_init.c`): OP_RD/WR/
+  SW/WB/ZR/WB_ZR/ZP/WR_64/IF_MODE_AND/IF_MODE_OR, always-!dmae mode (plain
+  register writes; valid on E2/E3), gunzip via iPXE deflate (DEFLATE_RAW
+  after gzip header skip, 32 KB scratch buffer via malloc_phys), init mode
+  flags (ASIC|PORT2/4|E3|E3_A0-or-B0+COS3|SF/MF|LITTLE_ENDIAN). Probe now
+  logs fw version + table sizes. **Hardware init sequences NOT yet ported**
+  — bnx2x_init_hw_{common,port,func} orchestration (reset_common, block
+  ordering, PXP arbiter/ILT, IGU) is the next chunk; until then ifopen still
+  does only the MCP handshake. Note: OP_ZP data_len=compressed bytes (high
+  u16 of data word), data_off=dword offset into SEM gzip blob (low u16);
+  IF_MODE cmd_offset lives in the 24-bit addr field.
 - **2026-07-20 (c)**: **Phase 2 validated on real hardware** (log excerpt
   below). Answers to the phase-2 hardware questions:
   - (a) **Link survives the load/unload handshake**: `ifstat` shows

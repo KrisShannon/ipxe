@@ -19,6 +19,7 @@ FILE_LICENCE ( GPL2_ONLY );
 
 #include <stdint.h>
 #include <ipxe/if_ether.h>
+#include <ipxe/io.h>
 
 /*
  * Chip numbers (chip_id bits 31:16).  E3 family only; E1x/E2 are not
@@ -253,6 +254,38 @@ struct bnx2x_nic {
 	unsigned int mf_ov;
 	/** MCP load response code (while device is open) */
 	uint32_t load_code;
+	/** Init mode flags (see bnx2x_init.h MODE_xxx) */
+	uint32_t init_mode_flags;
+	/** Decompression scratch buffer (during init only) */
+	uint32_t *gunzip_buf;
+	/** Length of last decompressed block (in dwords) */
+	uint32_t gunzip_outlen;
 };
+
+/**
+ * Read GRC register
+ *
+ * @v bnx2x		bnx2x device
+ * @v offset		Register offset within BAR0
+ * @ret value		Register value
+ */
+static inline uint32_t bnx2x_readl ( struct bnx2x_nic *bnx2x,
+				     uint32_t offset ) {
+
+	return readl ( bnx2x->regs + offset );
+}
+
+/**
+ * Write GRC register
+ *
+ * @v bnx2x		bnx2x device
+ * @v value		Value
+ * @v offset		Register offset within BAR0
+ */
+static inline void bnx2x_writel ( struct bnx2x_nic *bnx2x, uint32_t value,
+				  uint32_t offset ) {
+
+	writel ( value, ( bnx2x->regs + offset ) );
+}
 
 #endif /* _BNX2X_H */
