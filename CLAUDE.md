@@ -30,6 +30,16 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (o)**: RX still dead after opening NIG→BRB gates.
+  Added `bnx2x_rx_diag()` (bnx2x_hw.c), dumped on every ifclose:
+  NIG_REG_STAT0_BRB_DISCARD/TRUNCATE, BRB1_REG_NUM_OF_FULL_BLOCKS,
+  PRS_REG_NUM_OF_PACKETS, NIG_REG_STAT0_EGRESS_MAC_PKT0, USTORM rx
+  prods readback (IRO[217]) and raw fp_sb index words. Interpretation:
+  all-zero ⇒ frames never leave XMAC (look at warpcore/XMAC RX, MSTAT
+  counters next); discard>0 ⇒ NIG dropping (gates/masks); prs>0 with
+  no CQE ⇒ storm classification/USTORM placement (check prods/qzone,
+  client state, TSTORM drop stats). Port-0 counters only.
+
 - **2026-07-20 (n)**: **XMAC TX confirmed on hardware (switch RX
   counters increase) — RX still zero → found the missing NIG→BRB
   ingress gate.** Linux `bnx2x_set_rx_filter(params, 1)` (bnx2x_link.c,
