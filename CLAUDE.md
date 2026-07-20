@@ -30,6 +30,35 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ai)**: **PROJECT GOAL ACHIEVED: `ifconf -c ipv6
+  net0-602` completes over VLAN 602 over an ACTIVE LACP bundle on
+  the 57840 rNDC.** The eth_slow passive responder keeps the switch
+  port-channel bundled (visible as periodic TX len-124 LACPDUs).
+  Caveat discovered: building with `eth_slow:3` debug makes LACP
+  flap — serial console logging stalls the poll loop past the
+  fast-LACP ~3s response window; do NOT enable eth_slow debug over
+  serial on a live LACP port. NEXT (cleanup pass, in order):
+  (1) strip diag scaffolding: LBTEST/MACLB functions + calls,
+  RXDIAG dumps, STATS dump at close (maybe keep behind DBGC2?),
+  XMACPRE dump, debug/bnx2xdump.c;
+  (2) bisect the experimental init steps one boot each — candidates
+  to REMOVE if RX still works without them: forced XMAC hard reset
+  (aa/u), CTRL=0+20ms cycle (t), XON PFC_CTRL_HI toggle (s),
+  sibling XMAC enable (aa), EMAC0_IN_EN=1 (x); DECIDE on the NIG
+  reset (v): keeping it wipes the MFW RMP DHCP-steal rules (good
+  for DHCP!) but kills BMC inband mgmt on these ports while iPXE
+  runs — on this system BMC uses the dedicated iDRAC port, and a
+  reboot restores MFW config, so KEEP unless upstream objects;
+  (3) find the real RX fill threshold (bisect 8..48; keep margin);
+  (4) warm-reboot-to-OS-driver check (still outstanding from
+  phase 2!); open/close/open cycles; both 57810 ports + all four
+  rNDC ports smoke test;
+  (5) investigate the TX len-18 header-only frames seen on some
+  opens (upper-layer frame? mis-built iobuf?);
+  (6) size/trim for upstream: FILE_SECBOOT review, licence headers,
+  bnx2x_fw.h size (1.8MB header!) — consider fetching fw at build
+  time like other drivers, then ipxe-devel RFC.
+
 - **2026-07-20 (ah)**: **PHASE 6a COMPLETE: vcreate VLANs work on
   both cards.** `ifconf -c ipv6 net0-602` → ok (SLAAC over tagged
   VLAN 602 = tagged RS out, tagged RA in, on the 57840 rNDC);
