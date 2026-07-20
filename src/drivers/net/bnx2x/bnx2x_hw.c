@@ -1390,6 +1390,24 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 	bnx2x_writel ( bnx2x, 0, ( bnx2x->port ? NIG_REG_P1_MAC_PAUSE_OUT_EN :
 				   NIG_REG_P0_MAC_PAUSE_OUT_EN ) );
 
+	/* Open the ingress gate between the NIG LLH and the BRB, and
+	 * route ingress traffic to the host BRB rather than the
+	 * management processor (Linux bnx2x_set_rx_filter(params, 1),
+	 * called on link-up): all traffic classes (0x3f), both tagged
+	 * and untagged (0x3)
+	 */
+	bnx2x_writel ( bnx2x, 0x3f,
+		       ( NIG_REG_LLH0_BRB1_DRV_MASK + ( bnx2x->port * 4 ) ) );
+	bnx2x_writel ( bnx2x, 0x3,
+		       ( NIG_REG_LLH0_BRB1_DRV_MASK_MF +
+			 ( bnx2x->port * 4 ) ) );
+	bnx2x_writel ( bnx2x, 1, ( bnx2x->port ? NIG_REG_LLH1_BRB1_NOT_MCP :
+				   NIG_REG_LLH0_BRB1_NOT_MCP ) );
+
+	/* Disable NIG egress drain */
+	bnx2x_writel ( bnx2x, 0,
+		       ( NIG_REG_EGRESS_DRAIN0_MODE + ( bnx2x->port * 4 ) ) );
+
 	DBGC ( bnx2x, "BNX2X %p XMAC enabled (port %d, %d-port mode)\n",
 	       bnx2x, bnx2x->port, ( bnx2x->port4mode ? 4 : 2 ) );
 }

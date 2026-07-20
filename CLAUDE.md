@@ -30,6 +30,18 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (n)**: **XMAC TX confirmed on hardware (switch RX
+  counters increase) — RX still zero → found the missing NIG→BRB
+  ingress gate.** Linux `bnx2x_set_rx_filter(params, 1)` (bnx2x_link.c,
+  called on link-up) opens: `NIG_REG_LLH0_BRB1_DRV_MASK`(+port*4) =
+  0x3f (per-class ingress enables; RESET DEFAULT 0 = all ingress
+  blocked!), `NIG_REG_LLH0_BRB1_DRV_MASK_MF` = 0x3 (tagged+untagged),
+  `NIG_REG_LLH0/1_BRB1_NOT_MCP` = 1 (route ingress to host BRB, not
+  the management CPU), plus `NIG_REG_EGRESS_DRAIN0_MODE` = 0. All now
+  written at the end of bnx2x_xmac_enable(). TX-works/RX-dead with
+  clean CQE machinery = check these gates first. NOT yet
+  hardware-tested.
+
 - **2026-07-20 (m)**: **Phase 5 XMAC bring-up implemented** (in
   `bnx2x_hw.c` → no DEBUG string change). `bnx2x_xmac_enable()` runs
   at the end of datapath bring-up: hard reset via RESET_REG_2 XMAC
