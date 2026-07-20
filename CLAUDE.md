@@ -30,6 +30,31 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (aj)**: **Cleanup round 1 + NIG-reset removal
+  experiment (awaiting HW test).** Changes: (1) reset_common mask
+  reverted to Linux 0xd3ffff7f — the NIG is NO LONGER reset, so the
+  MFW RMP steering rules survive (incl. UDP 67/68/547 DHCP-steal
+  rules and the mgmt-MAC rule; BMC inband mgmt keeps working).
+  Risk to verify on HW: DHCPv4 over VLAN (net4-4001) might break if
+  the MFW steals port-67/68 replies — the RMP dump in RXDIAG shows
+  the active rules again; IPv6/SLAAC should be unaffected (ICMPv6).
+  If DHCP breaks: options are (a) restore the NIG reset behind a
+  build option, (b) surgically clear just the DEST_UDP/TCP RMP
+  rules (0x10214/0x10218/0x10220 region) at ifopen — gentler than a
+  full NIG reset, MFW MAC rule kept. (2) Probes deleted: XMACPRE
+  dump, bnx2x_lb_test (NIG debug injection), bnx2x_mac_lb_test
+  (XMAC loopback) + all call sites. KEPT for this bisect round:
+  RXDIAG dumps + STATS query at close, CTRL=0+20ms cycle, XON
+  toggle, sibling XMAC enable, EMAC0_IN_EN=1 (bisect those next,
+  one per boot, AFTER the NIG-reset verdict). Test scripts for
+  embedding added below ("Test scripts"). HW test: cold boot,
+  usual DEBUG string; (a) ifopen net0 + arping → RX>0 expected
+  (gates are driver-owned, reset not needed for plain RX);
+  (b) `vcreate --tag 4001 net4` + `ifconf -c dhcp net4-4001` — THE
+  critical check (RMP DHCP-steal); (c) ipv6 over net0-602 + LACP as
+  in (ai). Paste STATS+RXDIAG (rmp dump now nonzero again) if
+  anything fails.
+
 - **2026-07-20 (ai)**: **PROJECT GOAL ACHIEVED: `ifconf -c ipv6
   net0-602` completes over VLAN 602 over an ACTIVE LACP bundle on
   the 57840 rNDC.** The eth_slow passive responder keeps the switch
@@ -1240,6 +1265,70 @@ Other useful references:
   `src/drivers/net/intel.c` (clean minimal ring driver).
 - iPXE porting doc: https://ipxe.org/dev/drivers
 
+## Test scripts (EMBED these for unattended checks)
+
+Build with `EMBED=<script>.ipxe` (an embedded script replaces
+autoboot; the final `shell` keeps the console usable afterwards).
+
+Open/close cycle test (checks re-init after our own unload; the
+second and later opens re-run the full COMMON_CHIP init):
+
+```
+#!ipxe
+set n:int32 0
+:loop
+echo === cycle ${n} ===
+ifopen net0 || goto fail
+ifstat net0
+ifclose net0
+inc n
+iseq ${n} 10 || goto loop
+echo PASSED 10 open/close cycles
+shell
+:fail
+echo FAILED at cycle ${n}
+shell
+```
+
+All-ports smoke test (probe/open/close every function; expects all
+six links up):
+
+```
+#!ipxe
+set idx:int32 0
+:portloop
+ifopen net${idx} || goto fail
+ifstat net${idx}
+ifclose net${idx}
+inc idx
+iseq ${idx} 6 || goto portloop
+echo ALL PORTS PASSED
+shell
+:fail
+echo PORT net${idx} FAILED
+shell
+```
+
+VLAN DHCP soak test (repeated tagged DHCP on the 57810; adjust
+tag/interface to the switch config):
+
+```
+#!ipxe
+ifopen net4
+vcreate --tag 4001 net4
+set n:int32 0
+:loop
+ifconf -c dhcp net4-4001 || goto fail
+ifclose net4-4001
+inc n
+iseq ${n} 5 || goto loop
+echo PASSED 5 tagged DHCP cycles
+shell
+:fail
+echo DHCP FAILED at cycle ${n}
+shell
+```
+
 ## Hardware test logs
 
 ### 2026-07-20 — phase-1 build, first boot on target system
@@ -1313,3 +1402,23 @@ mf_cfg base 003c73b4 via shmem2.)
 - Keep commits small and buildable; `make bin-x86_64-efi/ipxe.efi` must pass
   before every commit.
 - Update the **Current status** section (dated) before ending any session.
+
+### 2026-07-20 — eth_slow:3 LACP responder output (for the record)
+
+Captured during the LACP flap investigation; with serial debug output
+enabled the responses were delayed enough that the switch's fast-LACP
+(~3s) timeout expired and the bundle flapped. Without eth_slow debug
+the bundle is stable. Typical exchange:
+
+```
+SLOW net0 RX LACP actor (8000,f8:b1:56:65:b4:d2,0008,8000,025b) [AFGScdlX]
+SLOW net0 RX LACP partner (ffff,4c:76:25:ba:93:dc,0001,ff,0001) [aFGsCDlx]
+SLOW net0 RX LACP collector 0000 (0 us)
+SLOW net0 LACP partner is down
+SLOW net0 TX LACP actor (ffff,4c:76:25:ba:93:dc,0001,ff,0001) [aFGSCDlx]
+SLOW net0 TX LACP partner (8000,f8:b1:56:65:b4:d2,0008,8000,025b) [AFGScdlX]
+SLOW net0 TX LACP collector 0000 (0 us)
+```
+
+(Switch actor f8:b1:56:65:b4:d2, our port answering with matching
+partner info; len-124 TX frames on the wire are these LACPDUs.)

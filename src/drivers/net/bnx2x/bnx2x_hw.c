@@ -176,22 +176,18 @@ static void bnx2x_pf_disable ( struct bnx2x_nic *bnx2x ) {
 static void bnx2x_reset_common ( struct bnx2x_nic *bnx2x ) {
 	uint32_t val = 0x1400;
 
-	/* Linux uses 0xd3ffff7f, deliberately excluding bit 7
-	 * (RST_NIG) so that the MCP's management path (BMC/NC-SI
+	/* 0xd3ffff7f matches Linux: bit 7 (RST_NIG) is deliberately
+	 * excluded so that the MCP's management path (BMC/NC-SI
 	 * steering lives in NIG registers) keeps working across
-	 * driver loads.  We include it: the NIG carries state from
-	 * the vendor UEFI driver epoch that is otherwise NEVER
-	 * cleared, and on this hardware the port LLH wedges in a
-	 * state where perfectly-configured ingress silently discards
-	 * all traffic (hardware bisection: MAC receives, LB-injected
-	 * packets reach the parser, wire packets vanish before the
-	 * LLH FIFO).  Linux itself resets the NIG this way in its
-	 * parity-recovery flow (bnx2x_process_kill) and re-runs the
-	 * same init tables afterwards, exactly as we do.  Management
-	 * sideband on THIS port is disrupted until the next MFW
-	 * reconfiguration; acceptable for a boot firmware driver.
+	 * driver loads.  Note the consequence: the management
+	 * firmware's RMP steering rules survive, including rules
+	 * that divert UDP ports 67/68/547 (DHCP/DHCPv6) to the
+	 * management processor on some configurations - if DHCP
+	 * replies go missing while ARP/ping RX works, this is the
+	 * first suspect (the RMP rule dump in the RX diagnostics
+	 * shows the active rules).
 	 */
-	bnx2x_writel ( bnx2x, 0xd3ffffff,
+	bnx2x_writel ( bnx2x, 0xd3ffff7f,
 		       ( GRCBASE_MISC + MISC_REGISTERS_RESET_REG_1_CLEAR ) );
 
 	/* E3: also reset the MSTAT blocks */
@@ -1315,30 +1311,9 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 			 ( chip_num == BNX2X_CHIP_NUM_57840_2_20 ) ||
 			 ( chip_num == BNX2X_CHIP_NUM_57840_OBSOLETE ) );
 
-	/* Capture the XMAC register window BEFORE we touch anything:
-	 * on a cold boot this is the vendor UEFI driver's working
-	 * configuration - the reference to diff our own against
-	 */
-	{
-		unsigned int i;
-		DBGC ( bnx2x, "BNX2X %p XMACPRE", bnx2x );
-		for ( i = 0 ; i < 128 ; i++ ) {
-			DBGC ( bnx2x, " %08x",
-			       bnx2x_readl ( bnx2x,
-					     ( xmac_base + ( i * 4 ) ) ) );
-		}
-		DBGC ( bnx2x, "\n" );
-	}
-
 	/* In 4-port mode the XMAC block is shared by both ports of
-	 * the path: if it is already out of reset, the mode has been
-	 * set and it must not be reset again (Linux rule, restored).
-	 * The vendor UEFI driver's register values proved IDENTICAL
-	 * to our own (XMACPRE vs RXDIAG xmac diff came back clean),
-	 * so the forced reset gains nothing - this run tests whether
-	 * the MAC loopback self-test passes on the untouched
-	 * vendor-configured XMAC, exonerating or convicting the reset
-	 * itself.
+	 * the path: if it is already out of reset, the mode has
+	 * already been set and it must not be reset again
 	 */
 	if ( ! ( is_57840 && bnx2x->port4mode &&
 		 ( bnx2x_readl ( bnx2x, MISC_REG_RESET_REG_2 ) &
@@ -1696,49 +1671,6 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 		       ( ( uint16_t * ) bnx2x->fp_sb )[i] );
 	}
 	DBGC ( bnx2x, "\n" );
-}
-
-/**
- * Inject NIG loopback debug packets to test the ingress pipeline
- *
- * @v bnx2x		bnx2x device
- *
- * Writes two 16-byte packets directly into the NIG's loopback LLH
- * via NIG_REG_DEBUG_PACKET_LB (Linux bnx2x_lb_pckt, used by the E1
- * internal memory self-test).  This enters the ingress pipeline
- * after the MAC, so it exercises NIG->BRB->PRS->storm placement
- * without any wire traffic: if PRS_REG_NUM_OF_PACKETS counts these
- * while wire frames still vanish, the blockage is squarely in the
- * MAC-to-LLH hop.  Destination MAC 55:55:55:55:55:55 is multicast,
- * so with the accept-all-multicast filter the packets can be
- * delivered all the way to the RX ring.
- */
-void bnx2x_lb_test ( struct bnx2x_nic *bnx2x ) {
-	/* Beat format: 64 bits of data + control word (bit5=SOP in
-	 * word 2 of the first beat, bit4=EOP with eop_bvalid=0 in the
-	 * last; port_id/vnic_num bits left zero = port 0)
-	 */
-	static const uint32_t sop[3] = { 0x55555555, 0x55555555, 0x20 };
-	static const uint32_t eop[3] = { 0x09000000, 0x55555555, 0x10 };
-	unsigned int pkt;
-	unsigned int i;
-
-	for ( pkt = 0 ; pkt < 2 ; pkt++ ) {
-		for ( i = 0 ; i < 3 ; i++ ) {
-			bnx2x_writel ( bnx2x, sop[i],
-				       ( 0x10800 + ( i * 4 ) ) );
-		}
-		for ( i = 0 ; i < 3 ; i++ ) {
-			bnx2x_writel ( bnx2x, eop[i],
-				       ( 0x10800 + ( i * 4 ) ) );
-		}
-	}
-	mdelay ( 10 );
-	DBGC ( bnx2x, "BNX2X %p LBTEST prs_packets %d brb_full %d "
-	       "lb_eop_empty %08x\n", bnx2x,
-	       bnx2x_readl ( bnx2x, PRS_REG_NUM_OF_PACKETS ),
-	       bnx2x_readl ( bnx2x, BRB1_REG_NUM_OF_FULL_BLOCKS ),
-	       bnx2x_readl ( bnx2x, 0x104e0 /* INGRESS_EOP_LB_EMPTY */ ) );
 }
 
 /**
