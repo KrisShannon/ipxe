@@ -30,6 +30,23 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (j)**: **Phase 4a VALIDATED ON HARDWARE** (after the
+  regpair fix): cold boot and warm-boot reruns both clean. The test
+  build lacked `bnx2x_sp:3` in DEBUG so the sp lines were invisible,
+  but success is implied conclusively: no NMI, ifopen returned
+  success (a FUNCTION_START completion timeout would have failed the
+  open), net0 went [open] with background TX attempts, ifclose clean.
+  ⇒ The full ramrod round trip works: SPE fetch, function_start_data
+  fetch, EQ completion DMA, def-SB index DMA, EQ prod update, IGU ack.
+  **First confirmed chip→host DMA.** Next hardware test: use the full
+  DEBUG string (bnx2x:3,bnx2x_init:3,bnx2x_hw:3,bnx2x_sp:3) to see
+  "function started" + EQ event lines explicitly. **Next: phase 4b
+  datapath** — needs BAR2 doorbell mapping at probe, fastpath SB,
+  ETH_CLIENT_SETUP (client_init_ramrod_data w/ CDU context validation
+  for cid 0), CLASSIFICATION_RULES (MAC), FILTER_RULES (rx mode:
+  ucast+bcast+all-mcast for LACP), RX BD/CQ rings + USTORM producers,
+  TX BD chain + doorbell, poll loop on fp SB indices. Design pack
+  below has all layouts.
 - **2026-07-20 (i)**: **Phase 4a first hardware test → NMI crash →
   root cause found and fixed.** Symptom: immediately after LOAD_DONE
   on ifopen, host NMI ("A system restart is required", crash IP in
