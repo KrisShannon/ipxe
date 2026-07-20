@@ -30,6 +30,38 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (k)**: **Phase 4b datapath implemented** (`bnx2x_eth.c`).
+  ifopen after function-start now: maps BAR2 doorbells (probe; 4K, cid0
+  @ offset 0, db_size 8) → fp SB (0x40) config in CSTORM IRO[136/137/
+  141] (index1=RX CQ→SM_RX+HC_EN, index5=TX COS0→SM_TX+HC_EN, SM
+  timer 0xff/expire ~0, same_igu_sb_1b, fw_sb_id=igu_base_sb) → CDU
+  ctx validation bytes for cid0 (crc8 @ +0x147 X-AG, +0x227 U-AG) →
+  rings (1 page each: RX BD 512×8B [510 usable, 2 next-ptrs], CQ
+  64×64B [63 usable, 1 next-page], TX 256×16B [255 usable]; all
+  self-looping) → post 8 RX bufs (2048B max_bytes, alloc 2176) +
+  USTORM prods IRO[217] (cqe_prod|bd_prod<<16, sge 0) → CLIENT_SETUP
+  ramrod (client_init data by computed offsets: mtu 1500, fp_hsi_ver
+  2, inner-vlan-removal OFF, dont_verify_pause 1, state DROP_ALL
+  initial; **completion = RAMROD CQE on own CQ**, type bits0-1==1) →
+  CLASSIFICATION_RULES MAC add (RX|TX|IS_ADD hdr 0x13; EQ opcode 15)
+  → FILTER_RULES rx-mode (2 rules RX+TX: MCAST_ALL|BCAST_ALL|
+  ANY_VLAN, matched-ucast; EQ opcode 16). TX: start_bd {addr, nbd=2,
+  len<<16, pkt_prod|0x10<<16|0x01<<24} + zero parse_bd_e2, doorbell
+  raw = 0x02|db_prod<<16 (db_prod += nbd). Poll: TX pkt cons = fp SB
+  idx5; RX: CQ cons vs idx1 (with 63-skip adjust), fastpath CQE:
+  pad=byte3, len=word2>>16, refill returns CQE credit. Close: HALT →
+  TERMINATE (CQ completions) → CFC_DEL (EQ op 3) → func stop →
+  unload. cl_id=qzone=(pfid>>1)<<2, cid 0, HW_CID port<<23|vn<<17.
+  **NOT yet hardware-tested.** Build:
+  `DEBUG=bnx2x:3,bnx2x_init:3,bnx2x_hw:3,bnx2x_sp:3,bnx2x_eth:3`
+  (bnx2x_eth is NEW in the debug list!). Test: ifopen net0 → expect
+  "function started", "client ready", "datapath up"; then `dhcp
+  net0` on an access port should complete! Watch: ramrod CQE timeout
+  (client setup), MAC/filter EQ timeouts, TX doorbell (does idx5
+  advance = first TX completion), RX (background IPv6 RS now real).
+  Then vcreate + LACP (phase 6). Known-unverified: FW handling of
+  pre-tagged VLAN TX frames (software VLAN), mtu 1500 vs tagged RX.
+
 - **2026-07-20 (j)**: **Phase 4a VALIDATED ON HARDWARE** (after the
   regpair fix): cold boot and warm-boot reruns both clean. The test
   build lacked `bnx2x_sp:3` in DEBUG so the sp lines were invisible,
@@ -501,7 +533,7 @@ must be listed explicitly.** The canonical set for hardware testing is
 currently:
 
 ```
-DEBUG=bnx2x:3,bnx2x_init:3,bnx2x_hw:3,bnx2x_sp:3
+DEBUG=bnx2x:3,bnx2x_init:3,bnx2x_hw:3,bnx2x_sp:3,bnx2x_eth:3
 ```
 
 (Extend this list whenever a new .c file is added to the driver — and call

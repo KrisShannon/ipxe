@@ -35,6 +35,7 @@ FILE_SECBOOT ( PERMITTED );
 #include "bnx2x_init.h"
 #include "bnx2x_hw.h"
 #include "bnx2x_sp.h"
+#include "bnx2x_eth.h"
 
 /** @file
  *
@@ -583,11 +584,18 @@ static int bnx2x_open ( struct net_device *netdev ) {
 	if ( ( rc = bnx2x_sp_init ( bnx2x ) ) != 0 )
 		goto err_sp_init;
 
-	/* No datapath yet; refresh link state */
+	/* Set up the Ethernet datapath */
+	if ( ( rc = bnx2x_eth_open ( netdev ) ) != 0 )
+		goto err_eth_open;
+
+	/* Refresh link state */
 	bnx2x_check_link ( netdev );
 
 	return 0;
 
+ err_eth_open:
+	bnx2x_func_stop ( bnx2x );
+	bnx2x_sp_free ( bnx2x );
  err_sp_init:
 	bnx2x_mcp_unload ( bnx2x );
 	bnx2x_hw_free ( bnx2x );
@@ -610,6 +618,9 @@ static int bnx2x_open ( struct net_device *netdev ) {
 static void bnx2x_close ( struct net_device *netdev ) {
 	struct bnx2x_nic *bnx2x = netdev->priv;
 
+	/* Tear down the Ethernet datapath */
+	bnx2x_eth_close ( netdev );
+
 	/* Stop the function */
 	bnx2x_func_stop ( bnx2x );
 
@@ -631,12 +642,9 @@ static void bnx2x_close ( struct net_device *netdev ) {
  * @ret rc		Return status code
  */
 static int bnx2x_transmit ( struct net_device *netdev,
-			    struct io_buffer *iobuf __unused ) {
-	struct bnx2x_nic *bnx2x = netdev->priv;
+			    struct io_buffer *iobuf ) {
 
-	/* Datapath not yet implemented */
-	DBGC2 ( bnx2x, "BNX2X %p transmit not yet implemented\n", bnx2x );
-	return -ENOTSUP;
+	return bnx2x_eth_transmit ( netdev, iobuf );
 }
 
 /**
@@ -646,7 +654,10 @@ static int bnx2x_transmit ( struct net_device *netdev,
  */
 static void bnx2x_poll ( struct net_device *netdev ) {
 
-	/* Datapath not yet implemented; just track link state */
+	/* Process TX completions and RX packets */
+	bnx2x_eth_poll ( netdev );
+
+	/* Track link state */
 	bnx2x_check_link ( netdev );
 }
 
@@ -692,6 +703,16 @@ static int bnx2x_probe ( struct pci_device *pci ) {
 		goto err_ioremap;
 	}
 
+	/* Map doorbells (BAR2) */
+	bnx2x->doorbells = pci_ioremap ( pci,
+					 pci_bar_start ( pci,
+							 PCI_BASE_ADDRESS_2 ),
+					 BNX2X_DOORBELL_SIZE );
+	if ( ! bnx2x->doorbells ) {
+		rc = -ENODEV;
+		goto err_ioremap_db;
+	}
+
 	/* Clean indirect addresses (as done by the Linux driver) */
 	pci_write_config_dword ( pci, PCICFG_GRC_ADDRESS,
 				 PCICFG_VENDOR_ID_OFFSET );
@@ -734,6 +755,8 @@ static int bnx2x_probe ( struct pci_device *pci ) {
  err_mac:
  err_shmem:
  err_identify:
+	iounmap ( bnx2x->doorbells );
+ err_ioremap_db:
 	iounmap ( bnx2x->regs );
  err_ioremap:
 	netdev_nullify ( netdev );
@@ -754,7 +777,8 @@ static void bnx2x_remove ( struct pci_device *pci ) {
 	/* Unregister network device */
 	unregister_netdev ( netdev );
 
-	/* Unmap registers */
+	/* Unmap doorbells and registers */
+	iounmap ( bnx2x->doorbells );
 	iounmap ( bnx2x->regs );
 
 	/* Free network device */

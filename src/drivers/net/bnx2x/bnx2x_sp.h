@@ -71,5 +71,15 @@ extern void bnx2x_sp_free ( struct bnx2x_nic *bnx2x );
 extern int bnx2x_func_stop ( struct bnx2x_nic *bnx2x );
 extern int bnx2x_sp_wait_comp ( struct bnx2x_nic *bnx2x,
 				unsigned int opcode );
+extern uint32_t bnx2x_iro_offset ( unsigned int idx, unsigned int m1_mult,
+				   unsigned int m2_mult );
+extern void bnx2x_storm_fill ( struct bnx2x_nic *bnx2x, uint32_t bar,
+			       uint32_t offset, size_t len, uint32_t fill );
+extern void bnx2x_storm_memcpy ( struct bnx2x_nic *bnx2x, uint32_t bar,
+				 uint32_t offset, const void *data,
+				 size_t len );
+extern void bnx2x_sp_post ( struct bnx2x_nic *bnx2x, unsigned int command,
+			    unsigned int cid, physaddr_t data_phys,
+			    unsigned int conn_type );
 
 #endif /* _BNX2X_SP_H */

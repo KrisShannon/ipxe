@@ -47,6 +47,9 @@ FILE_LICENCE ( GPL2_ONLY );
 /** BAR0 register window size (8MB on E2/E3) */
 #define BNX2X_BAR0_SIZE			0x800000
 
+/** Doorbell (BAR2) mapping size (we only use cid 0 at offset 0) */
+#define BNX2X_DOORBELL_SIZE		0x1000
+
 /*
  * GRC (BAR0) register addresses
  */
@@ -284,7 +287,42 @@ struct bnx2x_nic {
 	unsigned int eq_cons;
 	/** Event queue producer */
 	unsigned int eq_prod;
+	/** Doorbell BAR mapping */
+	void *doorbells;
+	/** Fastpath status block */
+	void *fp_sb;
+	/** RX buffer descriptor ring (one page) */
+	void *rx_bd_ring;
+	/** RX completion queue (one page) */
+	void *rx_cq_ring;
+	/** TX buffer descriptor ring (one page) */
+	void *tx_ring;
+	/** RX I/O buffers (FIFO order) */
+	struct io_buffer *rx_iobuf[8];
+	/** TX I/O buffers (FIFO order) */
+	struct io_buffer *tx_iobuf[16];
+	/** RX BD producer (firmware-style skipping counter) */
+	unsigned int rx_bd_prod;
+	/** RX CQ producer */
+	unsigned int rx_cq_prod;
+	/** RX CQ consumer */
+	unsigned int rx_cq_cons;
+	/** RX buffer FIFO head (posted count) */
+	unsigned int rx_ring_head;
+	/** RX buffer FIFO tail (consumed count) */
+	unsigned int rx_ring_tail;
+	/** TX BD producer (firmware-style skipping counter) */
+	unsigned int tx_bd_prod;
+	/** TX packet producer */
+	unsigned int tx_pkt_prod;
+	/** TX packet consumer */
+	unsigned int tx_pkt_cons;
+	/** TX doorbell BD counter */
+	unsigned int tx_db_prod;
 };
+
+/** Maximum number of in-flight transmissions */
+#define BNX2X_TX_MAX_PENDING 16
 
 /**
  * Read GRC register

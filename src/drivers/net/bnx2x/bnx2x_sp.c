@@ -51,7 +51,7 @@ FILE_SECBOOT ( PERMITTED );
  * @v m2_mult		Multiplier applied to m2
  * @ret offset		Offset within the storm BAR window
  */
-static uint32_t bnx2x_iro_offset ( unsigned int idx, unsigned int m1_mult,
+uint32_t bnx2x_iro_offset ( unsigned int idx, unsigned int m1_mult,
 				   unsigned int m2_mult ) {
 	const struct bnx2x_iro *iro = bnx2x_iro ( idx );
 
@@ -79,7 +79,7 @@ static void bnx2x_storm_writew ( struct bnx2x_nic *bnx2x, uint32_t bar,
 /**
  * Fill a storm RAM region with a value (dword granularity)
  */
-static void bnx2x_storm_fill ( struct bnx2x_nic *bnx2x, uint32_t bar,
+void bnx2x_storm_fill ( struct bnx2x_nic *bnx2x, uint32_t bar,
 			       uint32_t offset, size_t len, uint32_t fill ) {
 	size_t i;
 
@@ -90,7 +90,7 @@ static void bnx2x_storm_fill ( struct bnx2x_nic *bnx2x, uint32_t bar,
 /**
  * Write a structure to storm RAM as a sequence of dwords
  */
-static void bnx2x_storm_memcpy ( struct bnx2x_nic *bnx2x, uint32_t bar,
+void bnx2x_storm_memcpy ( struct bnx2x_nic *bnx2x, uint32_t bar,
 				 uint32_t offset, const void *data,
 				 size_t len ) {
 	const uint32_t *dwords = data;
@@ -258,7 +258,7 @@ static void bnx2x_update_eq_prod ( struct bnx2x_nic *bnx2x ) {
  * @v data_phys		Physical address of ramrod data (or 0)
  * @v conn_type		Connection type (ETH/NONE)
  */
-static void bnx2x_sp_post ( struct bnx2x_nic *bnx2x, unsigned int command,
+void bnx2x_sp_post ( struct bnx2x_nic *bnx2x, unsigned int command,
 			    unsigned int cid, physaddr_t data_phys,
 			    unsigned int conn_type ) {
 	uint32_t *spe = ( bnx2x->spq +
