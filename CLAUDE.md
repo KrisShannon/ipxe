@@ -30,6 +30,33 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (p)**: **MSTAT diag offsets corrected before hardware
+  test** — the first MSTAT diag commit read the wrong registers. In
+  HARDWARE the MSTAT RX counters start at base+0x200
+  (`MSTAT_REG_RX_STAT_GR64_LO` in bnx2x_reg.h); the packed
+  `struct mstat_stats` (TX 27 pairs = 0xd8 then RX) is only the DMAE
+  *destination* layout, not the register map. Corrected reads:
+  tx_gtpkt = +0x038 (TX entry 7), rx_grpkt/grfcs/gruca/grmca/grbca =
+  +0x250/0x258/0x260/0x268/0x270 (RX entries 10-14),
+  XMAC_REG_RX_LSS_STATUS = xmac_base+0x58 (confirmed from
+  bnx2x_reg.h). Also re-audited the whole RX enable path against
+  Linux line by line: bnx2x_phy_init LFA path = set_rx_filter(1)
+  [0x3f/0x3/1 — matches ours] → bnx2x_avoid_link_flap = MSTAT
+  reset-toggle (stats-zeroing only; our MSTAT is out of reset via
+  common init 0xfffc|MSTAT0|MSTAT1 restore) + bnx2x_xmac_enable
+  [matches ours incl. update_pfc values 0x18000/0xffff8000/0x2 and
+  set_xumac_nig] + NIG drain 0. init_hw_port NIG section
+  (HDRS_AFTER_BASIC=6, LLH_MF_MODE=0, DRV_MASK_MF=0x2 at port-init
+  then 0x3 at rx_filter, CLS_TYPE=0, LLFC off, PAUSE_ENABLE=1) and
+  BRB1 4-port MAC_GUARANTIED=40 all match Linux. ⇒ No config delta
+  found on the enable path; the MSTAT numbers must decide. Test as
+  before: full DEBUG string, ifopen net0, wait ~10 s with inbound
+  broadcast traffic on the port, ifclose net0, capture the RXDIAG
+  lines. Reading: rx_grpkt==0 ⇒ XMAC RX silent (check xmac_lss fault
+  bits, then warpcore↔XMAC RX coupling); rx_grpkt>0 & prs 0 ⇒ NIG
+  eats frames between MAC and BRB (hunt LLH masks); "usem/xmac rx
+  flush" from note (l) does NOT exist in bnx2x_link.c (searched).
+
 - **2026-07-20 (o)**: RX still dead after opening NIG→BRB gates.
   Added `bnx2x_rx_diag()` (bnx2x_hw.c), dumped on every ifclose:
   NIG_REG_STAT0_BRB_DISCARD/TRUNCATE, BRB1_REG_NUM_OF_FULL_BLOCKS,

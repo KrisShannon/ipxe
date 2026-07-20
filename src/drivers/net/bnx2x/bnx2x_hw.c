@@ -1434,10 +1434,15 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 	       bnx2x_readl ( bnx2x, PRS_REG_NUM_OF_PACKETS ),
 	       bnx2x_readl ( bnx2x, NIG_REG_STAT0_EGRESS_MAC_PKT0 ) );
 
-	/* MSTAT (E3 statistics block): stats_tx at +0, stats_rx at
-	 * +0xd8; each counter is a lo/hi dword pair.  tx_gtpkt at
-	 * +0x70, rx_grpkt at +0xd8+0x50, rx_grfcs/gruca/grmca/grbca
-	 * following.  XMAC RX_LSS_STATUS shows latched fault state.
+	/* MSTAT (E3 statistics block) hardware register map: TX
+	 * counters from +0x000 (MSTAT_REG_TX_STAT_GTXPOK_LO), RX
+	 * counters from +0x200 (MSTAT_REG_RX_STAT_GR64_LO); each
+	 * counter is a lo/hi dword pair.  (The Linux mstat_stats
+	 * struct packs RX right after TX, but that is only the DMAE
+	 * destination layout - the hardware has RX at +0x200.)
+	 * tx_gtpkt is TX entry 7 (+0x38); rx_grpkt/grfcs/gruca/grmca/
+	 * grbca are RX entries 10-14 (+0x250..+0x270).  XMAC
+	 * RX_LSS_STATUS shows the latched local/remote fault state.
 	 */
 	{
 		uint32_t mstat = ( bnx2x->port ? 0x162800 /* MSTAT1 */ :
@@ -1447,12 +1452,12 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 		DBGC ( bnx2x, "BNX2X %p RXDIAG mstat tx_gtpkt %d rx_grpkt "
 		       "%d rx_grfcs %d rx_gruca %d rx_grmca %d rx_grbca %d "
 		       "xmac_lss %08x\n", bnx2x,
-		       bnx2x_readl ( bnx2x, ( mstat + 0x70 ) ),
-		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x50 ) ),
-		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x58 ) ),
-		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x60 ) ),
-		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x68 ) ),
-		       bnx2x_readl ( bnx2x, ( mstat + 0xd8 + 0x70 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0x038 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x50 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x58 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x60 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x68 ) ),
+		       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x70 ) ),
 		       bnx2x_readl ( bnx2x, ( xmac_base + 0x58 ) ) );
 	}
 
