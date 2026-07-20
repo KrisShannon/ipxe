@@ -176,7 +176,22 @@ static void bnx2x_pf_disable ( struct bnx2x_nic *bnx2x ) {
 static void bnx2x_reset_common ( struct bnx2x_nic *bnx2x ) {
 	uint32_t val = 0x1400;
 
-	bnx2x_writel ( bnx2x, 0xd3ffff7f,
+	/* Linux uses 0xd3ffff7f, deliberately excluding bit 7
+	 * (RST_NIG) so that the MCP's management path (BMC/NC-SI
+	 * steering lives in NIG registers) keeps working across
+	 * driver loads.  We include it: the NIG carries state from
+	 * the vendor UEFI driver epoch that is otherwise NEVER
+	 * cleared, and on this hardware the port LLH wedges in a
+	 * state where perfectly-configured ingress silently discards
+	 * all traffic (hardware bisection: MAC receives, LB-injected
+	 * packets reach the parser, wire packets vanish before the
+	 * LLH FIFO).  Linux itself resets the NIG this way in its
+	 * parity-recovery flow (bnx2x_process_kill) and re-runs the
+	 * same init tables afterwards, exactly as we do.  Management
+	 * sideband on THIS port is disrupted until the next MFW
+	 * reconfiguration; acceptable for a boot firmware driver.
+	 */
+	bnx2x_writel ( bnx2x, 0xd3ffffff,
 		       ( GRCBASE_MISC + MISC_REGISTERS_RESET_REG_1_CLEAR ) );
 
 	/* E3: also reset the MSTAT blocks */

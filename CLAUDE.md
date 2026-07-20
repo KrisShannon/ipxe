@@ -30,6 +30,37 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (v)**: **Forced XMAC reset did NOT help; switch-port
+  bounce did NOT help ⇒ new best theory: the NIG P0 LLH input state
+  machine is WEDGED (mid-packet cut during the UNDI→iPXE handover /
+  our init-over-live-NIG), and survives everything because the NIG
+  is the one block never reset (Linux excludes RST_NIG only to keep
+  the MCP/BMC path alive).** Supporting logic: under the vendor UEFI
+  driver RX WORKED (SNP delivered untagged frames — the original
+  problem was only VLAN/LACP), so XMAC→NIG was fine before we took
+  over; LB LLH (separate input machine) works (LBTEST prs 5 again);
+  every register/config readback is perfect; MAC-side resets/edges
+  change nothing. xmac_lss=1 this run = latched local-fault from our
+  hard reset + the port bounce; informational only. FIX in this
+  commit (one line): bnx2x_reset_common now clears 0xd3ffffff (adds
+  bit 7 RST_NIG) so the NIG is fully reset and then rebuilt by the
+  SAME init tables we already run (Linux's parity-recovery
+  process_kill does exactly this: REG_1 0xffffffff incl. NIG with
+  MCP alive, then normal init). Consequence: MFW's NIG config (RMP
+  steering etc.) is wiped while iPXE owns the NIC — BMC inband
+  management via these ports would break until MFW reconfigures;
+  user's BMC is on the dedicated iDRAC port, acceptable. The forced
+  XMAC reset + CTRL cycle + XON toggle from (t)/(u) are left in for
+  now — once RX works, revisit and strip the unnecessary ones one at
+  a time. Test: usual DEBUG string; cold boot recommended (clean
+  epoch), ifopen net0, arping/bcast-ping from VLAN 602 host,
+  ifclose; success = ifstat RX>0. If RX works: immediately also test
+  `vcreate --tag 602 net0` + `dhcp net0-602` (watch for the MFW
+  UDP-67/68 RMP steal — should be gone now since RMP rules are wiped
+  by the NIG reset!) and then phase 6 LACP. If still dead: next
+  probes are LLH1-gate-open test (crossed RX mux theory) and XMAC
+  line-local loopback (CTRL bit2) to bisect line-vs-system RX.
+
 - **2026-07-20 (u)**: **BISECTION COMPLETE: NIG/BRB/PRS proven good
   (LBTEST prs_packets 4), wire RX still dead ⇒ blockage is INSIDE
   the XMAC→LLH hop.** CTRL off/on cycle did not help either. Also
