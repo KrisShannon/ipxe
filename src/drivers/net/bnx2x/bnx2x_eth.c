@@ -448,6 +448,82 @@ static int bnx2x_set_rx_mode ( struct bnx2x_nic *bnx2x ) {
 }
 
 /**
+ * XMAC line-local loopback self-test
+ *
+ * @v bnx2x		bnx2x device
+ * @v netdev		Network device
+ *
+ * Briefly enables the XMAC line-side loopback and transmits one
+ * frame addressed to ourselves through the normal TX ring.  The
+ * frame returns at the MAC line side - the same point where wire
+ * frames are counted by MSTAT - so if it surfaces as an RX
+ * completion, the entire XMAC RX -> NIG -> BRB -> parser -> storm ->
+ * host path is proven and the wire RX loss must be in the
+ * warpcore-to-XMAC line coupling (or frame marking).  The iobuf is
+ * enqueued on the netdev TX queue directly (netdev_tx() refuses
+ * while the device is still opening) so that the normal completion
+ * path accounts for it.
+ */
+static void bnx2x_mac_lb_test ( struct bnx2x_nic *bnx2x,
+				struct net_device *netdev ) {
+	uint32_t xmac_base = ( bnx2x->port ? GRCBASE_XMAC1 : GRCBASE_XMAC0 );
+	uint32_t mstat = ( bnx2x->port ? 0x162800 : 0x162000 );
+	uint16_t *rx_cons_sb = ( bnx2x->fp_sb + ( 1 * 2 ) ); /* index 1 */
+	struct io_buffer *iobuf;
+	uint8_t *frame;
+	uint32_t ctrl;
+	uint32_t rx_before;
+	uint16_t idx1_before;
+	unsigned int i;
+
+	iobuf = alloc_iob ( 128 );
+	if ( ! iobuf )
+		return;
+	frame = iob_put ( iobuf, 60 );
+	memset ( frame, 0, 60 );
+	memcpy ( frame, netdev->ll_addr, ETH_ALEN );		/* dest: us */
+	memcpy ( ( frame + 6 ), netdev->ll_addr, ETH_ALEN );	/* src: us */
+	frame[12] = 0x88;					/* local */
+	frame[13] = 0xb5;					/* experimental */
+	for ( i = 14 ; i < 60 ; i++ )
+		frame[i] = i;
+
+	idx1_before = le16_to_cpu ( rx_cons_sb[0] );
+	rx_before = bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x50 ) );
+
+	/* Enable line-local loopback */
+	ctrl = bnx2x_readl ( bnx2x, ( xmac_base + XMAC_REG_CTRL ) );
+	bnx2x_writel ( bnx2x, ( ctrl | XMAC_CTRL_REG_LINE_LOCAL_LPBK ),
+		       ( xmac_base + XMAC_REG_CTRL ) );
+	mdelay ( 2 );
+
+	/* Transmit through the normal ring, with the iobuf enqueued
+	 * where the TX completion path expects it
+	 */
+	list_add_tail ( &iobuf->list, &netdev->tx_queue );
+	if ( bnx2x_eth_transmit ( netdev, iobuf ) != 0 ) {
+		list_del ( &iobuf->list );
+		free_iob ( iobuf );
+	} else {
+		/* Wait for the frame to come back */
+		for ( i = 0 ; i < 100 ; i++ ) {
+			if ( le16_to_cpu ( rx_cons_sb[0] ) != idx1_before )
+				break;
+			mdelay ( 1 );
+		}
+	}
+
+	/* Disable loopback again */
+	bnx2x_writel ( bnx2x, ctrl, ( xmac_base + XMAC_REG_CTRL ) );
+
+	DBGC ( bnx2x, "BNX2X %p MACLB idx1 %d->%d mstat_rx %d->%d "
+	       "tx_gtpkt %d\n", bnx2x, idx1_before,
+	       le16_to_cpu ( rx_cons_sb[0] ), rx_before,
+	       bnx2x_readl ( bnx2x, ( mstat + 0x200 + 0x50 ) ),
+	       bnx2x_readl ( bnx2x, ( mstat + 0x038 ) ) );
+}
+
+/**
  * Open the Ethernet datapath
  *
  * @v netdev		Network device
@@ -537,6 +613,12 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	 * debug line; the packets may also surface as RX completions)
 	 */
 	bnx2x_lb_test ( bnx2x );
+
+	/* XMAC line-local loopback self-test: our own TX returns at
+	 * the MAC line side, exercising the XMAC RX -> NIG -> BRB ->
+	 * host path end to end with no wire involvement
+	 */
+	bnx2x_mac_lb_test ( bnx2x, netdev );
 
 	DBGC ( bnx2x, "BNX2X %p datapath up\n", bnx2x );
 	return 0;

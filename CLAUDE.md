@@ -30,6 +30,34 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (w)**: **NIG reset did NOT fix wire RX either — but it
+  proves the wedge theory wrong and narrows the fault to the
+  XMAC↔NIG interface itself: freshly-reset NIG (RMP dump now all
+  zeros = reset provably took effect) + freshly-reset XMAC + perfect
+  config, LB injection reaches PRS, wire frames still counted at MAC
+  line side (12 grpok incl. the arpings) and never enter the P0 RX
+  MACFIFO.** New probes in this commit (no fix attempt): (1)
+  bnx2x_mac_lb_test() in bnx2x_eth.c — at open, enables XMAC
+  LINE_LOCAL_LPBK (CTRL bit2), TXes one self-addressed 60-byte frame
+  (ethertype 0x88b5) through the normal ring (iobuf manually put on
+  netdev->tx_queue since netdev_tx refuses mid-open), waits ≤100ms
+  for fp_sb index1 to move, restores CTRL; logs "MACLB idx1 a->b
+  mstat_rx x->y tx_gtpkt z". Line-local loopback returns TX at the
+  MAC line side = same tap where MSTAT counts wire frames. (2) RXDIAG
+  "misc" line: NIG_REG_PORT_SWAP (0x10394), STRAP_OVERRIDE (0x10398),
+  MSTAT1 tx/rx/pok counters, P1_RX_MACFIFO_EMPTY (0x1858c) — checks
+  the crossed-RX-mux theory (frames landing at NIG P1/LLH1 whose
+  gates are closed).
+  Interpretation: MACLB idx1 advances ⇒ whole XMAC-RX→host path good
+  ⇒ wire loss is WC→XMAC coupling or line-side frame marking (weird,
+  since MSTAT counts them as good — then compare mstat_rx delta for
+  the loopback frame vs wire frames). MACLB dead + mstat_rx
+  incremented ⇒ XMAC system side broken generally → attack
+  CORE_PORT_MODE/system-side config next. mstat1 counters nonzero ⇒
+  crossing to port 1 → open LLH1/P1 gates + maybe enable XMAC1.
+  Test: usual DEBUG string, ifopen net0 (MACLB runs automatically),
+  wire arping as before, ifclose, paste MACLB + all RXDIAG lines.
+
 - **2026-07-20 (v)**: **Forced XMAC reset did NOT help; switch-port
   bounce did NOT help ⇒ new best theory: the NIG P0 LLH input state
   machine is WEDGED (mid-packet cut during the UNDI→iPXE handover /

@@ -360,6 +360,7 @@ struct bnx2x_nic;
 #define XMAC_REG_CTRL				0x00
 #define XMAC_CTRL_REG_TX_EN			0x01
 #define XMAC_CTRL_REG_RX_EN			0x02
+#define XMAC_CTRL_REG_LINE_LOCAL_LPBK		0x04
 #define XMAC_REG_TX_CTRL			0x20
 #define XMAC_REG_CTRL_SA_LO			0x28
 #define XMAC_REG_CTRL_SA_HI			0x2c

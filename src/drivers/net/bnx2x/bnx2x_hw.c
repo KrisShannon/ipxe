@@ -1569,6 +1569,15 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 	       bnx2x_readl ( bnx2x, 0x103c0 ),	/* NIG_INT_STS_1 */
 	       bnx2x_readl ( bnx2x, 0x183bc ),	/* NIG_PRTY_STS_0 */
 	       bnx2x_readl ( bnx2x, 0x183cc ) );	/* NIG_PRTY_STS_1 */
+	DBGC ( bnx2x, "BNX2X %p RXDIAG misc port_swap %d strap_ovr %d "
+	       "mstat1_tx %d mstat1_rx %d mstat1_pok %d p1_macfifo %08x\n",
+	       bnx2x,
+	       bnx2x_readl ( bnx2x, 0x10394 ),	/* PORT_SWAP */
+	       bnx2x_readl ( bnx2x, 0x10398 ),	/* STRAP_OVERRIDE */
+	       bnx2x_readl ( bnx2x, ( 0x162800 + 0x038 ) ),
+	       bnx2x_readl ( bnx2x, ( 0x162800 + 0x250 ) ),
+	       bnx2x_readl ( bnx2x, ( 0x162800 + 0x2a8 ) ),
+	       bnx2x_readl ( bnx2x, 0x1858c ) );	/* P1_RX_MACFIFO_EMPTY */
 
 	/* Read back the USTORM RX producers for our queue zone */
 	for ( i = 0 ; i < 2 ; i++ ) {
