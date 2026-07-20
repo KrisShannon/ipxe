@@ -611,11 +611,14 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	 */
 	bnx2x_xmac_enable ( bnx2x, netdev->ll_addr );
 
-	/* Inject NIG loopback debug packets: tests NIG->BRB->PRS->
-	 * storm placement with no wire traffic (results in the LBTEST
-	 * debug line; the packets may also surface as RX completions)
+	/* NIG loopback debug packet injection DISABLED for this run:
+	 * the injected 16-byte runts are malformed and may themselves
+	 * wedge the parser-to-storm pipeline, plugging it ahead of
+	 * every legitimate frame.  The MAC loopback self-test below
+	 * uses a well-formed frame and must run on a clean pipeline.
+	 *
+	 * bnx2x_lb_test ( bnx2x );
 	 */
-	bnx2x_lb_test ( bnx2x );
 
 	/* XMAC line-local loopback self-test: our own TX returns at
 	 * the MAC line side, exercising the XMAC RX -> NIG -> BRB ->

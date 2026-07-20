@@ -1646,6 +1646,28 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 		DBGC ( bnx2x, "\n" );
 	}
 
+	/* Parser-to-storm handoff state: every RX frame flows
+	 * PRS -> TCM/TSTORM with per-CID activity counting through
+	 * the CFC.  A latched error or stuck activity counter here
+	 * explains a parser that accepts a trickle of frames and then
+	 * backpressures the entire ingress path.
+	 */
+	DBGC ( bnx2x, "BNX2X %p RXDIAG storm prs_int %08x prs_dead %d "
+	       "tcm_int %08x tsdm_int %08x tsdm_en1 %08x cfc_int %08x "
+	       "cfc_err %08x lcids arr %d alloc %d leave %d inside_pf %d\n",
+	       bnx2x,
+	       bnx2x_readl ( bnx2x, 0x40188 ),	/* PRS_INT_STS */
+	       bnx2x_readl ( bnx2x, 0x40130 ),	/* PRS_NUM_OF_DEAD_CYCLES */
+	       bnx2x_readl ( bnx2x, 0x501d0 ),	/* TCM_INT_STS */
+	       bnx2x_readl ( bnx2x, 0x42290 ),	/* TSDM_INT_STS_0 */
+	       bnx2x_readl ( bnx2x, 0x42238 ),	/* TSDM_ENABLE_IN1 */
+	       bnx2x_readl ( bnx2x, 0x1040fc ),	/* CFC_INT_STS */
+	       bnx2x_readl ( bnx2x, 0x10403c ),	/* CFC_ERROR_VECTOR */
+	       bnx2x_readl ( bnx2x, 0x104004 ),	/* NUM_LCIDS_ARRIVING */
+	       bnx2x_readl ( bnx2x, 0x104020 ),	/* NUM_LCIDS_ALLOC */
+	       bnx2x_readl ( bnx2x, 0x104018 ),	/* NUM_LCIDS_LEAVING */
+	       bnx2x_readl ( bnx2x, 0x104120 ) );	/* NUM_LCIDS_INSIDE_PF */
+
 	/* Legacy NIG per-MAC interface enables (also at silicon
 	 * defaults since our NIG reset; the init tables never write
 	 * them)

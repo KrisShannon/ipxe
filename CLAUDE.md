@@ -30,6 +30,38 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ab)**: **Fault relocated: the MAC→NIG→BRB→PRS path
+  is (at least partly) ALIVE on BOTH chips — the stall is at the
+  parser→storm handoff.** Evidence: 57840 sibling-enable run showed
+  prs_packets 2 at close (FIRST EVER MAC-side frames at the parser
+  on the 4-port chip; sibling ctrl read 3 = was already enabled, so
+  the sibling theory's premise was wrong but the run moved the
+  needle anyway); 57810 runs showed 1 then 0. Pattern = a trickle
+  (0-2 frames) passes, then nothing: classic credit/backpressure
+  stall — the parser hands each frame to TCM/TSTORM with per-CID
+  activity counting through the CFC; if that handshake sticks, the
+  parser accepts its internal buffer's worth and backpressures the
+  whole ingress path forever (which is what all the MAC-boundary
+  symptoms were). MACLB failing on the 57810 even with the fixed
+  source MAC fits too (its frame queued behind the stalled LBTEST
+  runts?). Checked and CLEARED: CFC_REG_DEBUG0=0 after CFC polls is
+  faithful to Linux (7458); TCM_REG_PRS_IFEN=1 and TCM_CFC_IFEN=1
+  from tables; PRS_REG_NIC_MODE=1 written in func init; CFC search
+  credit untouched by tables (default). This commit: (1) new
+  "RXDIAG storm" line — PRS_INT_STS, PRS_NUM_OF_DEAD_CYCLES,
+  TCM_INT_STS, TSDM_INT_STS_0, TSDM_ENABLE_IN1, CFC_INT_STS,
+  CFC_ERROR_VECTOR, CFC NUM_LCIDS_ARRIVING/ALLOC/LEAVING/INSIDE_PF
+  — a latched error or stuck LCID counter names the guilty block;
+  (2) LBTEST injection DISABLED (the 16-byte runts are malformed
+  and may themselves plug the parser ahead of legitimate frames —
+  MACLB must test a clean pipeline). Test: cold boot, usual DEBUG
+  string, ifopen net0 (MACLB auto), arping, ifclose; also same on
+  net4 if convenient. KEY LINES: MACLB + "RXDIAG storm" +
+  prs_packets. If MACLB now passes without the runts ahead of it ⇒
+  LBTEST was the plug all along (post-(t) runs anyway) and wire RX
+  may just work; if storm line shows CFC/TCM errors ⇒ attack that
+  block's config (CDU context validation / activity counters).
+
 - **2026-07-20 (aa)**: **57810 CROSS-CHECK IS THE BREAKTHROUGH: on
   the 2-port chip ONE frame reached the parser (RXDIAG prs_packets
   1, after LBTEST's clear-on-read) — almost certainly the MACLB
