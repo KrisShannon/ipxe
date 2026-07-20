@@ -30,6 +30,26 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (i)**: **Phase 4a first hardware test → NMI crash →
+  root cause found and fixed.** Symptom: immediately after LOAD_DONE
+  on ifopen, host NMI ("A system restart is required", crash IP in
+  Metronome.efi = during our mdelay poll loop); Dell Lifecycle log
+  shows "PCI parity error ... bus 0 device 5 function 0/2" = the
+  Intel IIO root-complex global-error functions. Diagnosis: the SPE's
+  data pointer was written hi/lo-transposed (`struct regpair` is
+  {lo, hi} in memory — we wrote hi first), so the storm firmware's
+  very first upstream DMA (fetching function_start_data) went to
+  address ~(lo<<32), i.e. an 8-EB address → master abort/poisoned
+  completion → IIO parity error → NMI. The EQ next-page element had
+  the same transposition (would have bitten at first EQ wrap).
+  Both fixed; all other 64-bit address writes audited (sp_sb host
+  addr, EQ base, SPQ page base, IGU attn addr, ILT lines — all
+  correct). **Lesson: every `regpair` in HSI structures is lo-first;
+  double-check every hi/lo fill against the Linux assignment order.**
+  Retest 4a after a COLD POWER CYCLE (the NMI/parity state and a
+  possibly-wedged PGLUE was_error want a clean slate; note the
+  was-error clear in func init should handle it, but don't confuse
+  debugging with residue from the crash).
 - **2026-07-20 (h)**: **Phase 4a slowpath infrastructure implemented**
   (`bnx2x_sp.c`/`bnx2x_sp.h`). ifopen now, after LOAD_DONE: allocates
   def SB (0x40)/EQ page/SPQ page/ramrod buffer → configures the def SB

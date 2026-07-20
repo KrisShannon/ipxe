@@ -210,11 +210,13 @@ static void bnx2x_init_eq_ring ( struct bnx2x_nic *bnx2x ) {
 	uint32_t eq_data[4];
 	unsigned int pf = bnx2x->pfid;
 
-	/* Last element of the (single) page points back to the page */
+	/* Last element of the (single) page points back to the page
+	 * (struct regpair: lo dword first, then hi)
+	 */
 	last_elem = ( bnx2x->eq_ring +
 		      ( ( BNX2X_EQ_DESC_CNT - 1 ) * BNX2X_EQ_ELEM_SIZE ) );
-	last_elem[0] = ( ( ( uint64_t ) eq_phys ) >> 32 );	/* hi */
-	last_elem[1] = ( eq_phys & 0xffffffffUL );		/* lo */
+	last_elem[0] = ( eq_phys & 0xffffffffUL );		/* lo */
+	last_elem[1] = ( ( ( uint64_t ) eq_phys ) >> 32 );	/* hi */
 
 	bnx2x->eq_cons = 0;
 	bnx2x->eq_prod = BNX2X_EQ_DESC_CNT;
@@ -266,15 +268,16 @@ static void bnx2x_sp_post ( struct bnx2x_nic *bnx2x, unsigned int command,
 	uint16_t type;
 
 	/* struct eth_spe: hdr.conn_and_cmd_data (le32), hdr.type
-	 * (le16 + le16 reserved), data.update_data_addr hi/lo (le32)
+	 * (le16 + le16 reserved), data.update_data_addr as a regpair
+	 * (lo dword first, then hi)
 	 */
 	hw_cid = ( ( bnx2x->port << 23 ) | ( ( bnx2x->pfid >> 1 ) << 17 ) |
 		   cid );
 	type = ( ( conn_type & 0xff ) | ( bnx2x->pfid << 8 ) );
 	spe[0] = cpu_to_le32 ( ( command << 24 ) | hw_cid );
 	spe[1] = cpu_to_le32 ( type );
-	spe[2] = cpu_to_le32 ( ( ( uint64_t ) data_phys ) >> 32 );
-	spe[3] = cpu_to_le32 ( data_phys & 0xffffffffUL );
+	spe[2] = cpu_to_le32 ( data_phys & 0xffffffffUL );
+	spe[3] = cpu_to_le32 ( ( ( uint64_t ) data_phys ) >> 32 );
 	wmb();
 
 	/* Advance producer (wraps with the single page) */
