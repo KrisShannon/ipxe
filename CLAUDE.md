@@ -30,6 +30,33 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ad)**: **AGG_DATA/IGU_MODE fix did NOT change
+  behaviour. But the clean-pipeline 57810 run reproduced the real
+  trickle: prs_packets 1 at close with NO runts injected — one
+  genuine MAC-side frame (MACLB frame or the single wire unicast)
+  reached the parser, then nothing, and it produced no CQE with
+  prods untouched and zero errors anywhere. 57840: still prs 0
+  always.** Reproducible pattern: 2-port passes exactly ~1 frame
+  then stalls; 4-port passes 0. Signature = single-buffer handoff
+  then permanent stall somewhere in PRS→TCM/TSTORM→USTORM: the
+  frame is consumed, never placed (no CQE, no drop counter we can
+  see, no error, prods frozen). Ideas standing: (a) client state
+  machine — CLIENT_SETUP put client in DROP_ALL-ish initial state
+  and FILTER_RULES may not have taken effect on the right
+  client/path (silent TSTORM drop wouldn't stall PRS though); (b)
+  something in the TSTORM→USTORM placement handshake never
+  completes, wedging the one-frame pipeline. **NEXT STEP (new
+  session): port the STATS_QUERY ramrod (bnx2x_stats.c machinery:
+  stats_query_header/cmd_group, DMAE-back per-queue+per-port
+  TSTORM/USTORM stats) to see rcv_*_pkts vs *_discard counters —
+  that names the storm-side fate of the frame(s). Also re-audit
+  client_init_ramrod_data byte offsets (esp. rx state flags,
+  cache_line_log, sb index ids) and FILTER_RULES echo/cid handling
+  against Linux bnx2x_q_fill_init_* one more time with fresh eyes;
+  and consider testing with UCAST_ACCEPT_ALL added to filter state
+  to bypass classification.** 4-port extra deadness (0 vs 1 frame)
+  remains unexplained on top of the common stall.
+
 - **2026-07-20 (ac)**: **Clean-pipeline run: prs 0 on BOTH chips ⇒
   the earlier "trickle" was almost certainly the LBTEST runts
   echoing in the counter, NOT MAC frames. Storm/CFC diag all clean
