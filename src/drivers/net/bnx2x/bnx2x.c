@@ -56,6 +56,19 @@ static uint32_t bnx2x_readl ( struct bnx2x_nic *bnx2x, uint32_t offset ) {
 }
 
 /**
+ * Write GRC register
+ *
+ * @v bnx2x		bnx2x device
+ * @v value		Value
+ * @v offset		Register offset within BAR0
+ */
+static void bnx2x_writel ( struct bnx2x_nic *bnx2x, uint32_t value,
+			   uint32_t offset ) {
+
+	writel ( value, ( bnx2x->regs + offset ) );
+}
+
+/**
  * Read MCP shared memory location
  *
  * @v bnx2x		bnx2x device
@@ -66,6 +79,74 @@ static uint32_t bnx2x_shmem_readl ( struct bnx2x_nic *bnx2x,
 				    uint32_t offset ) {
 
 	return bnx2x_readl ( bnx2x, ( bnx2x->shmem_base + offset ) );
+}
+
+/**
+ * Write MCP shared memory location
+ *
+ * @v bnx2x		bnx2x device
+ * @v value		Value
+ * @v offset		Offset within shared memory
+ */
+static void bnx2x_shmem_writel ( struct bnx2x_nic *bnx2x, uint32_t value,
+				 uint32_t offset ) {
+
+	bnx2x_writel ( bnx2x, value, ( bnx2x->shmem_base + offset ) );
+}
+
+/**
+ * Read multi-function configuration location
+ *
+ * @v bnx2x		bnx2x device
+ * @v offset		Offset within mf_cfg region
+ * @ret value		Value
+ */
+static uint32_t bnx2x_mf_cfg_readl ( struct bnx2x_nic *bnx2x,
+				     uint32_t offset ) {
+
+	return bnx2x_readl ( bnx2x, ( bnx2x->mf_cfg_base + offset ) );
+}
+
+/**
+ * Issue MCP mailbox command and await response
+ *
+ * @v bnx2x		bnx2x device
+ * @v command		Command code (DRV_MSG_CODE_xxx)
+ * @v param		Command parameter
+ * @ret response	Response code (FW_MSG_CODE_xxx), or 0 on timeout
+ */
+static uint32_t bnx2x_fw_command ( struct bnx2x_nic *bnx2x, uint32_t command,
+				   uint32_t param ) {
+	uint32_t func_mb = BNX2X_SHMEM_FUNC_MB ( bnx2x->fw_mb_idx );
+	uint32_t seq;
+	uint32_t response = 0;
+	unsigned int i;
+
+	/* Compose and post command with next sequence number */
+	bnx2x->fw_seq = ( ( bnx2x->fw_seq + 1 ) & DRV_MSG_SEQ_NUMBER_MASK );
+	seq = bnx2x->fw_seq;
+	bnx2x_shmem_writel ( bnx2x, param,
+			     ( func_mb + BNX2X_FUNC_MB_DRV_MB_PARAM ) );
+	bnx2x_shmem_writel ( bnx2x, ( command | seq ),
+			     ( func_mb + BNX2X_FUNC_MB_DRV_MB_HEADER ) );
+	DBGC2 ( bnx2x, "BNX2X %p MCP command %08x param %08x\n",
+		bnx2x, ( command | seq ), param );
+
+	/* Wait for firmware to echo our sequence number */
+	for ( i = 0 ; i < BNX2X_MCP_TIMEOUT_TICKS ; i++ ) {
+		mdelay ( 10 );
+		response = bnx2x_shmem_readl ( bnx2x,
+				( func_mb + BNX2X_FUNC_MB_FW_MB_HEADER ) );
+		if ( ( response & FW_MSG_SEQ_NUMBER_MASK ) == seq ) {
+			DBGC2 ( bnx2x, "BNX2X %p MCP response %08x\n",
+				bnx2x, response );
+			return ( response & FW_MSG_CODE_MASK );
+		}
+	}
+
+	DBGC ( bnx2x, "BNX2X %p MCP command %08x timed out (last response "
+	       "%08x)\n", bnx2x, ( command | seq ), response );
+	return 0;
 }
 
 /**
@@ -148,9 +229,14 @@ static int bnx2x_identify_function ( struct bnx2x_nic *bnx2x ) {
 	}
 	bnx2x->port = ( bnx2x->pfid & 1 );
 	bnx2x->path = ( bnx2x->pf_num & 1 );
-	DBGC ( bnx2x, "BNX2X %p pf %d pfid %d port %d path %d (%d-port "
-	       "mode)\n", bnx2x, bnx2x->pf_num, bnx2x->pfid, bnx2x->port,
-	       bnx2x->path, ( bnx2x->port4mode ? 4 : 2 ) );
+
+	/* Firmware mailbox index: port + vn * (ports per path) */
+	bnx2x->fw_mb_idx = ( bnx2x->port + ( ( bnx2x->pfid >> 1 ) *
+					     ( bnx2x->port4mode ? 2 : 1 ) ) );
+	DBGC ( bnx2x, "BNX2X %p pf %d pfid %d port %d path %d fw_mb %d "
+	       "(%d-port mode)\n", bnx2x, bnx2x->pf_num, bnx2x->pfid,
+	       bnx2x->port, bnx2x->path, bnx2x->fw_mb_idx,
+	       ( bnx2x->port4mode ? 4 : 2 ) );
 
 	return 0;
 }
@@ -208,29 +294,154 @@ static int bnx2x_init_shmem ( struct bnx2x_nic *bnx2x ) {
 }
 
 /**
+ * Detect multi-function mode
+ *
+ * @v bnx2x		bnx2x device
+ * @ret rc		Return status code
+ */
+static int bnx2x_detect_mf ( struct bnx2x_nic *bnx2x ) {
+	unsigned int func = bnx2x->pf_num;
+	uint32_t shmem2_size;
+	uint32_t feat;
+	uint32_t val;
+
+	/* Locate multi-function configuration region */
+	bnx2x->mf_cfg_base = ( bnx2x->shmem_base +
+			       BNX2X_MF_CFG_LEGACY_OFFSET );
+	if ( bnx2x->shmem2_base ) {
+		shmem2_size = bnx2x_readl ( bnx2x, ( bnx2x->shmem2_base +
+						     BNX2X_SHMEM2_SIZE ) );
+		if ( shmem2_size > BNX2X_SHMEM2_MF_CFG_ADDR ) {
+			bnx2x->mf_cfg_base =
+				bnx2x_readl ( bnx2x, ( bnx2x->shmem2_base +
+						BNX2X_SHMEM2_MF_CFG_ADDR ) );
+		}
+	}
+	if ( ! bnx2x->mf_cfg_base ) {
+		DBGC ( bnx2x, "BNX2X %p no mf_cfg region\n", bnx2x );
+		bnx2x->mf_mode = BNX2X_MF_NONE;
+		return 0;
+	}
+
+	/* Determine forced single/multi function mode */
+	feat = ( bnx2x_shmem_readl ( bnx2x, BNX2X_SHMEM_FEAT_CONFIG ) &
+		 SHARED_FEAT_CFG_FORCE_SF_MODE_MASK );
+	switch ( feat ) {
+	case SHARED_FEAT_CFG_FORCE_SF_MODE_SWITCH_INDEPT:
+		/* NPAR: valid only if the function has a legal MAC */
+		val = bnx2x_mf_cfg_readl ( bnx2x,
+				BNX2X_MF_CFG_FUNC_MAC_UPPER ( func ) );
+		bnx2x->mf_mode = ( ( val != FUNC_MF_CFG_UPPERMAC_DEFAULT ) ?
+				   BNX2X_MF_SI : BNX2X_MF_NONE );
+		break;
+	case SHARED_FEAT_CFG_FORCE_SF_MODE_MF_ALLOWED:
+	case SHARED_FEAT_CFG_FORCE_SF_MODE_SPIO4:
+		/* Switch-dependent: valid only if func 0 has an outer
+		 * VLAN configured
+		 */
+		val = ( bnx2x_mf_cfg_readl ( bnx2x,
+				BNX2X_MF_CFG_FUNC_E1HOV_TAG ( 0 ) ) &
+			FUNC_MF_CFG_E1HOV_TAG_MASK );
+		bnx2x->mf_mode = ( ( val != FUNC_MF_CFG_E1HOV_TAG_DEFAULT ) ?
+				   BNX2X_MF_SD : BNX2X_MF_NONE );
+		break;
+	case SHARED_FEAT_CFG_FORCE_SF_MODE_BD_MODE:
+	case SHARED_FEAT_CFG_FORCE_SF_MODE_UFP_MODE:
+		bnx2x->mf_mode = BNX2X_MF_SD;
+		break;
+	case SHARED_FEAT_CFG_FORCE_SF_MODE_FORCED_SF:
+		bnx2x->mf_mode = BNX2X_MF_NONE;
+		break;
+	default:
+		/* AFEX and extended modes are not supported; treat as
+		 * single-function but complain
+		 */
+		DBGC ( bnx2x, "BNX2X %p unsupported MF mode %08x\n",
+		       bnx2x, feat );
+		bnx2x->mf_mode = BNX2X_MF_UNSUPPORTED;
+		break;
+	}
+
+	/* Record outer VLAN for switch-dependent mode */
+	if ( bnx2x->mf_mode == BNX2X_MF_SD ) {
+		val = ( bnx2x_mf_cfg_readl ( bnx2x,
+				BNX2X_MF_CFG_FUNC_E1HOV_TAG ( func ) ) &
+			FUNC_MF_CFG_E1HOV_TAG_MASK );
+		if ( val != FUNC_MF_CFG_E1HOV_TAG_DEFAULT ) {
+			bnx2x->mf_ov = val;
+		} else {
+			DBGC ( bnx2x, "BNX2X %p MF-SD without outer VLAN\n",
+			       bnx2x );
+			return -EINVAL;
+		}
+	}
+
+	DBGC ( bnx2x, "BNX2X %p %s mode (feat %08x mf_cfg %08x ov %d)\n",
+	       bnx2x,
+	       ( ( bnx2x->mf_mode == BNX2X_MF_NONE ) ? "single-function" :
+		 ( bnx2x->mf_mode == BNX2X_MF_SI ) ? "MF switch-independent" :
+		 ( bnx2x->mf_mode == BNX2X_MF_SD ) ? "MF switch-dependent" :
+		 "MF UNSUPPORTED" ),
+	       feat, bnx2x->mf_cfg_base, bnx2x->mf_ov );
+
+	return 0;
+}
+
+/**
+ * Set MAC address from upper/lower register values
+ *
+ * @v hw_addr		MAC address to fill in
+ * @v upper		Upper 16 bits
+ * @v lower		Lower 32 bits
+ */
+static void bnx2x_set_mac_buf ( uint8_t *hw_addr, uint32_t upper,
+				uint32_t lower ) {
+
+	hw_addr[0] = ( upper >> 8 );
+	hw_addr[1] = ( upper >> 0 );
+	hw_addr[2] = ( lower >> 24 );
+	hw_addr[3] = ( lower >> 16 );
+	hw_addr[4] = ( lower >> 8 );
+	hw_addr[5] = ( lower >> 0 );
+}
+
+/**
  * Fetch MAC address from MCP shared memory
  *
  * @v bnx2x		bnx2x device
  * @ret rc		Return status code
  */
 static int bnx2x_fetch_mac ( struct bnx2x_nic *bnx2x ) {
+	unsigned int func = bnx2x->pf_num;
 	uint32_t upper;
 	uint32_t lower;
 
-	/* Read port MAC address.  Note that in multi-function (NPAR)
-	 * configurations the per-function MAC lives in the mf_cfg
-	 * region instead; handling that is a TODO (see CLAUDE.md).
+	/* In multi-function modes the per-function MAC comes from the
+	 * mf_cfg region; otherwise use the port MAC.
 	 */
+	if ( ( bnx2x->mf_mode == BNX2X_MF_SI ) ||
+	     ( bnx2x->mf_mode == BNX2X_MF_SD ) ) {
+		upper = bnx2x_mf_cfg_readl ( bnx2x,
+				BNX2X_MF_CFG_FUNC_MAC_UPPER ( func ) );
+		lower = bnx2x_mf_cfg_readl ( bnx2x,
+				BNX2X_MF_CFG_FUNC_MAC_LOWER ( func ) );
+		if ( ( upper != FUNC_MF_CFG_UPPERMAC_DEFAULT ) &&
+		     ( lower != FUNC_MF_CFG_LOWERMAC_DEFAULT ) ) {
+			bnx2x_set_mac_buf ( bnx2x->hw_addr, upper, lower );
+			DBGC ( bnx2x, "BNX2X %p func %d MF MAC %s\n", bnx2x,
+			       func, eth_ntoa ( bnx2x->hw_addr ) );
+			return 0;
+		}
+		DBGC ( bnx2x, "BNX2X %p func %d has no valid MF MAC; "
+		       "falling back to port MAC\n", bnx2x, func );
+	}
+
+	/* Read port MAC address */
 	upper = bnx2x_shmem_readl ( bnx2x,
 				    BNX2X_SHMEM_MAC_UPPER ( bnx2x->port ) );
 	lower = bnx2x_shmem_readl ( bnx2x,
 				    BNX2X_SHMEM_MAC_LOWER ( bnx2x->port ) );
-	bnx2x->hw_addr[0] = ( upper >> 8 );
-	bnx2x->hw_addr[1] = ( upper >> 0 );
-	bnx2x->hw_addr[2] = ( lower >> 24 );
-	bnx2x->hw_addr[3] = ( lower >> 16 );
-	bnx2x->hw_addr[4] = ( lower >> 8 );
-	bnx2x->hw_addr[5] = ( lower >> 0 );
+	bnx2x_set_mac_buf ( bnx2x->hw_addr, upper, lower );
 	DBGC ( bnx2x, "BNX2X %p port %d MAC %s\n", bnx2x, bnx2x->port,
 	       eth_ntoa ( bnx2x->hw_addr ) );
 
@@ -268,14 +479,124 @@ static void bnx2x_check_link ( struct net_device *netdev ) {
 }
 
 /**
+ * Unload driver instance via MCP
+ *
+ * @v bnx2x		bnx2x device
+ * @ret rc		Return status code
+ */
+static int bnx2x_mcp_unload ( struct bnx2x_nic *bnx2x ) {
+	uint32_t response;
+
+	/* Request unload */
+	response = bnx2x_fw_command ( bnx2x, DRV_MSG_CODE_UNLOAD_REQ_WOL_DIS,
+				      0 );
+	if ( ! response )
+		return -EBUSY;
+	DBGC ( bnx2x, "BNX2X %p MCP unload level %08x\n", bnx2x, response );
+
+	/* Complete unload, leaving the link untouched so that the
+	 * MFW-maintained link (which we rely upon) stays up.
+	 */
+	response = bnx2x_fw_command ( bnx2x, DRV_MSG_CODE_UNLOAD_DONE,
+				      DRV_MSG_CODE_UNLOAD_SKIP_LINK_RESET );
+	if ( ! response )
+		return -EBUSY;
+
+	bnx2x->load_code = 0;
+	return 0;
+}
+
+/**
+ * Load driver instance via MCP
+ *
+ * @v bnx2x		bnx2x device
+ * @ret rc		Return status code
+ */
+static int bnx2x_mcp_load ( struct bnx2x_nic *bnx2x ) {
+	uint32_t func_mb = BNX2X_SHMEM_FUNC_MB ( bnx2x->fw_mb_idx );
+	uint32_t load_code;
+	uint32_t response;
+	int rc;
+
+	/* Resume mailbox sequence numbering from current state */
+	bnx2x->fw_seq =
+		( bnx2x_shmem_readl ( bnx2x, ( func_mb +
+					BNX2X_FUNC_MB_DRV_MB_HEADER ) ) &
+		  DRV_MSG_SEQ_NUMBER_MASK );
+	DBGC2 ( bnx2x, "BNX2X %p initial fw_seq %04x\n",
+		bnx2x, bnx2x->fw_seq );
+
+	/* Recover from any previous driver instance (vendor UNDI
+	 * driver, OS driver after a warm reboot, or an interrupted
+	 * iPXE session) by requesting and completing an unload.  This
+	 * is the (heavily simplified) equivalent of the Linux
+	 * driver's bnx2x_prev_unload(): we cannot yet perform the
+	 * "common" hardware cleanup for a chip left running by an
+	 * uncleanly-stopped previous driver, but the unload handshake
+	 * alone resets the MCP's load counts for this function.
+	 */
+	if ( ( rc = bnx2x_mcp_unload ( bnx2x ) ) != 0 ) {
+		DBGC ( bnx2x, "BNX2X %p previous-unload failed\n", bnx2x );
+		return rc;
+	}
+
+	/* Request load, with link flap avoidance so that an
+	 * MFW-maintained link stays up across the handshake.
+	 */
+	load_code = bnx2x_fw_command ( bnx2x, DRV_MSG_CODE_LOAD_REQ,
+				       DRV_MSG_CODE_LOAD_REQ_WITH_LFA );
+	if ( ! load_code ) {
+		DBGC ( bnx2x, "BNX2X %p MCP load request timed out\n",
+		       bnx2x );
+		return -EBUSY;
+	}
+	if ( load_code == FW_MSG_CODE_DRV_LOAD_REFUSED ) {
+		DBGC ( bnx2x, "BNX2X %p MCP refused load request\n", bnx2x );
+		return -EBUSY;
+	}
+	bnx2x->load_code = load_code;
+	DBGC ( bnx2x, "BNX2X %p MCP load level %08x (%s)\n", bnx2x, load_code,
+	       ( ( load_code == FW_MSG_CODE_DRV_LOAD_COMMON_CHIP ) ?
+		 "common+chip" :
+		 ( load_code == FW_MSG_CODE_DRV_LOAD_COMMON ) ? "common" :
+		 ( load_code == FW_MSG_CODE_DRV_LOAD_PORT ) ? "port" :
+		 ( load_code == FW_MSG_CODE_DRV_LOAD_FUNCTION ) ? "function" :
+		 "unknown" ) );
+
+	/* Hardware initialisation according to load level (common /
+	 * port / function) will be performed here in phase 3.
+	 */
+
+	/* Complete load */
+	response = bnx2x_fw_command ( bnx2x, DRV_MSG_CODE_LOAD_DONE, 0 );
+	if ( ! response ) {
+		DBGC ( bnx2x, "BNX2X %p MCP load-done timed out\n", bnx2x );
+		bnx2x_mcp_unload ( bnx2x );
+		return -EBUSY;
+	}
+
+	/* Tell the MCP not to expect heartbeat pulses from us */
+	bnx2x_shmem_writel ( bnx2x, DRV_PULSE_ALWAYS_ALIVE,
+			     ( func_mb + BNX2X_FUNC_MB_DRV_PULSE_MB ) );
+
+	return 0;
+}
+
+/**
  * Open network device
  *
  * @v netdev		Network device
  * @ret rc		Return status code
  */
 static int bnx2x_open ( struct net_device *netdev ) {
+	struct bnx2x_nic *bnx2x = netdev->priv;
+	int rc;
 
-	/* No datapath yet; just refresh link state */
+	/* Perform MCP load handshake */
+	if ( ( rc = bnx2x_mcp_load ( bnx2x ) ) != 0 )
+		return rc;
+
+	/* No datapath yet; refresh link state */
 	bnx2x_check_link ( netdev );
 
 	return 0;
@@ -286,9 +607,11 @@ static int bnx2x_open ( struct net_device *netdev ) {
  *
  * @v netdev		Network device
  */
-static void bnx2x_close ( struct net_device *netdev __unused ) {
+static void bnx2x_close ( struct net_device *netdev ) {
+	struct bnx2x_nic *bnx2x = netdev->priv;
 
-	/* Nothing to do yet */
+	/* Perform MCP unload handshake */
+	bnx2x_mcp_unload ( bnx2x );
 }
 
 /**
@@ -374,6 +697,10 @@ static int bnx2x_probe ( struct pci_device *pci ) {
 
 	/* Locate MCP shared memory */
 	if ( ( rc = bnx2x_init_shmem ( bnx2x ) ) != 0 )
+		goto err_shmem;
+
+	/* Detect multi-function mode */
+	if ( ( rc = bnx2x_detect_mf ( bnx2x ) ) != 0 )
 		goto err_shmem;
 
 	/* Fetch MAC address */

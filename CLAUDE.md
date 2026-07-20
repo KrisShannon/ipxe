@@ -30,6 +30,21 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20**: Phase 2 (MCP handshake) implemented. `bnx2x_fw_command()`
+  mailbox with sequence numbers; `ifopen` now performs: fw_seq resume from
+  `drv_mb_header` → simplified previous-unload (UNLOAD_REQ_WOL_DIS +
+  UNLOAD_DONE w/ SKIP_LINK_RESET — the full `bnx2x_prev_unload` hw cleanup
+  [pglue errors, hw locks, UNDI MAC close, FLR] is **not** ported yet) →
+  LOAD_REQ WITH_LFA → LOAD_DONE → write DRV_PULSE_ALWAYS_ALIVE. `ifclose`
+  does UNLOAD_REQ_WOL_DIS + UNLOAD_DONE(SKIP_LINK_RESET). MF detection at
+  probe: mf_cfg base via shmem2 `mf_cfg_addr` (fallback legacy), forced-SF
+  mode switch (SI/SD/BD/UFP/forced-SF), per-function MAC from mf_cfg in MF
+  modes, `mf_ov` recorded for SD. **Hardware questions for next session:**
+  (a) does link_status stay up across LOAD_REQ(WITH_LFA)→LOAD_DONE with no
+  PHY init? (b) what load level does MCP return on cold boot (expect
+  COMMON_CHIP)? (c) MF mode + MAC on the Dell rNDC 57840? (d) does a
+  warm-reboot into the OS bnx2x driver still work after our load/unload
+  cycle? Test: `ifopen net0` / `ifclose net0` under `DEBUG=bnx2x:3`.
 - **2026-07-19**: Project started. Branch `claude/efi-network-snp-vlan-lacp-m81oui`
   created off `origin/master` (9d6b360). Driver skeleton added under
   `src/drivers/net/bnx2x/`: PCI probe, BAR0 mapping, chip identification,
@@ -96,7 +111,22 @@ program taking `offsetof(struct shmem_region, ...)` — see "Reference sources")
 | `dev_info.port_hw_config[port].mac_upper` | `0x0044 + port*0x190` |
 | `dev_info.port_hw_config[port].mac_lower` | `0x0048 + port*0x190` |
 | `port_mb[port]` (`struct drv_port_mb`, link_status first) | `0x0664 + port*0x10` |
-| `func_mb[func]` (`struct drv_func_mb`, size 0x2c) | `0x0684 + func*0x2c` |
+| `func_mb[fw_mb_idx]` (`struct drv_func_mb`, size 0x2c) | `0x0684 + idx*0x2c` |
+| `dev_info.shared_feature_config.config` | `0x0354` |
+
+`drv_func_mb` members: drv_mb_header +0x00, drv_mb_param +0x04,
+fw_mb_header +0x08, fw_mb_param +0x0c, drv_pulse_mb +0x10, mcp_pulse_mb
++0x14, drv_status +0x20. **Mailbox index is NOT the PF number**:
+`fw_mb_idx = port + vn * (4port ? 2 : 1)` where `vn = pfid >> 1`
+(Linux `BP_FW_MB_IDX`). Mailbox protocol: write param, then
+`command | ++seq` (seq 16-bit, resumed from drv_mb_header at load) to
+drv_mb_header; poll fw_mb_header until low 16 bits echo seq (≤5 s);
+response is high 16 bits. All message codes are in our `bnx2x.h`.
+
+shmem2 layout (from shmem2 base): `size` +0x00, `mf_cfg_addr` +0x10.
+mf_cfg layout (base from `mf_cfg_addr`, or legacy shmem+0x0684+8*0x2c):
+`func_mf_config[abs_func]` at 0x24 + func*0x18, members config +0x00,
+mac_upper +0x04, mac_lower +0x08, e1hov_tag +0x0c.
 
 MAC byte order (Linux `bnx2x_set_mac_buf`): `mac[0]=upper>>8, mac[1]=upper,
 mac[2]=lower>>24, mac[3]=lower>>16, mac[4]=lower>>8, mac[5]=lower`.
@@ -131,12 +161,13 @@ mac[2]=lower>>24, mac[3]=lower>>16, mac[4]=lower>>8, mac[5]=lower`.
 1. **Phase 1 — skeleton (DONE, needs HW validation)**: probe, chip id, shmem,
    MAC, link status readout. Deliverable: `ifstat` shows `net0` with correct
    MAC on real hardware; debug log shows sane chip id / bc_rev / shmem values.
-2. **Phase 2 — MCP handshake & MF awareness**: `DRV_MSG_CODE_LOAD_REQ` /
-   `LOAD_DONE` sequence via `func_mb` (mailbox protocol incl. sequence numbers
-   in `drv_mb_header`), previous-unload recovery (`bnx2x_prev_unload` logic),
-   MF mode detect + per-function MAC from mf_cfg, proper `UNLOAD_REQ` on
-   remove. Without a clean unload the MFW can leave the function in a bad
-   state for the OS driver — be careful, test with warm reboots.
+2. **Phase 2 — MCP handshake & MF awareness (CODE DONE, needs HW
+   validation)**: implemented as described in the status entry above.
+   Deliberately deferred pieces of Linux `bnx2x_prev_unload` (port later if
+   hardware testing shows they're needed): `bnx2x_clean_pglue_errors`, hw
+   lock/NVRAM-arb release (`MISC_REG_DRIVER_CONTROL_x`, `MCPR_NVM_SW_ARB`),
+   MCP access-lock release, UNDI-residue detection + MAC close +
+   `bnx2x_prev_unload_common` chip reset, FLR path, path marking.
 3. **Phase 3 — hardware init + storm firmware**: embed/parse fw blob, port the
    init-ops interpreter, common/port/function init sequences (Linux
    `bnx2x_init_hw_{common,port,func}`), PXP arbiter/ILT setup for a minimal

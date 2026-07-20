@@ -103,11 +103,107 @@ FILE_LICENCE ( GPL2_ONLY );
 
 /** Per-function driver/MCP mailbox (struct drv_func_mb) */
 #define BNX2X_SHMEM_FUNC_MB_STRIDE	0x2c
-#define BNX2X_SHMEM_FUNC_MB( func ) \
-	( 0x0684 + ( (func) * BNX2X_SHMEM_FUNC_MB_STRIDE ) )
+#define BNX2X_SHMEM_FUNC_MB( fw_mb_idx ) \
+	( 0x0684 + ( (fw_mb_idx) * BNX2X_SHMEM_FUNC_MB_STRIDE ) )
+
+/* Member offsets within struct drv_func_mb */
+#define BNX2X_FUNC_MB_DRV_MB_HEADER	0x00
+#define BNX2X_FUNC_MB_DRV_MB_PARAM	0x04
+#define BNX2X_FUNC_MB_FW_MB_HEADER	0x08
+#define BNX2X_FUNC_MB_FW_MB_PARAM	0x0c
+#define BNX2X_FUNC_MB_DRV_PULSE_MB	0x10
+#define BNX2X_FUNC_MB_MCP_PULSE_MB	0x14
+#define BNX2X_FUNC_MB_DRV_STATUS	0x20
+
+/* Driver-to-MCP mailbox message codes (drv_mb_header) */
+#define DRV_MSG_CODE_MASK		0xffff0000
+#define DRV_MSG_CODE_LOAD_REQ		0x10000000
+#define DRV_MSG_CODE_LOAD_DONE		0x11000000
+#define DRV_MSG_CODE_UNLOAD_REQ_WOL_DIS	0x20010000
+#define DRV_MSG_CODE_UNLOAD_REQ_WOL_MCP	0x20020000
+#define DRV_MSG_CODE_UNLOAD_DONE	0x21000000
+#define DRV_MSG_SEQ_NUMBER_MASK		0x0000ffff
+
+/* LOAD_REQ parameter (drv_mb_param) */
+#define DRV_MSG_CODE_LOAD_REQ_WITH_LFA	0x0000100a
+
+/* UNLOAD_DONE parameter (drv_mb_param) */
+#define DRV_MSG_CODE_UNLOAD_SKIP_LINK_RESET 0x00000002
+
+/* MCP-to-driver mailbox response codes (fw_mb_header) */
+#define FW_MSG_CODE_MASK		0xffff0000
+#define FW_MSG_CODE_DRV_LOAD_COMMON	0x10100000
+#define FW_MSG_CODE_DRV_LOAD_PORT	0x10110000
+#define FW_MSG_CODE_DRV_LOAD_FUNCTION	0x10120000
+#define FW_MSG_CODE_DRV_LOAD_COMMON_CHIP 0x10130000
+#define FW_MSG_CODE_DRV_LOAD_REFUSED	0x10200000
+#define FW_MSG_CODE_DRV_LOAD_DONE	0x11100000
+#define FW_MSG_CODE_DRV_UNLOAD_COMMON	0x20100000
+#define FW_MSG_CODE_DRV_UNLOAD_PORT	0x20110000
+#define FW_MSG_CODE_DRV_UNLOAD_FUNCTION	0x20120000
+#define FW_MSG_CODE_DRV_UNLOAD_DONE	0x21100000
+#define FW_MSG_SEQ_NUMBER_MASK		0x0000ffff
+
+/* Driver pulse (drv_pulse_mb) */
+#define DRV_PULSE_SEQ_MASK		0x00007fff
+#define DRV_PULSE_ALWAYS_ALIVE		0x00008000
+
+/** Shared feature configuration (dev_info.shared_feature_config.config) */
+#define BNX2X_SHMEM_FEAT_CONFIG		0x0354
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_MASK		0x00000700
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_MF_ALLOWED	0x00000000
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_FORCED_SF		0x00000100
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_SPIO4		0x00000200
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_SWITCH_INDEPT	0x00000300
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_AFEX_MODE		0x00000400
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_BD_MODE		0x00000500
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_UFP_MODE		0x00000600
+#define SHARED_FEAT_CFG_FORCE_SF_MODE_EXTENDED_MODE	0x00000700
+
+/*
+ * Secondary shared memory (shmem2) layout: offsets from shmem2 base
+ */
+#define BNX2X_SHMEM2_SIZE		0x0000
+#define BNX2X_SHMEM2_MF_CFG_ADDR	0x0010
+
+/*
+ * Multi-function configuration (mf_cfg) layout: offsets from mf_cfg
+ * base.  Legacy (no shmem2 mf_cfg_addr) location is directly after
+ * the E1H_FUNC_MAX func_mb array at the end of shmem.
+ */
+#define BNX2X_MF_CFG_LEGACY_OFFSET \
+	( 0x0684 + ( 8 /* E1H_FUNC_MAX */ * BNX2X_SHMEM_FUNC_MB_STRIDE ) )
+#define BNX2X_MF_CFG_FUNC_STRIDE	0x18
+#define BNX2X_MF_CFG_FUNC_CONFIG( func ) \
+	( 0x0024 + ( (func) * BNX2X_MF_CFG_FUNC_STRIDE ) )
+#define BNX2X_MF_CFG_FUNC_MAC_UPPER( func ) \
+	( 0x0028 + ( (func) * BNX2X_MF_CFG_FUNC_STRIDE ) )
+#define BNX2X_MF_CFG_FUNC_MAC_LOWER( func ) \
+	( 0x002c + ( (func) * BNX2X_MF_CFG_FUNC_STRIDE ) )
+#define BNX2X_MF_CFG_FUNC_E1HOV_TAG( func ) \
+	( 0x0030 + ( (func) * BNX2X_MF_CFG_FUNC_STRIDE ) )
+#define FUNC_MF_CFG_UPPERMAC_DEFAULT	0x0000ffff
+#define FUNC_MF_CFG_LOWERMAC_DEFAULT	0xffffffff
+#define FUNC_MF_CFG_E1HOV_TAG_MASK	0x0000ffff
+#define FUNC_MF_CFG_E1HOV_TAG_DEFAULT	0x0000ffff
+
+/** Multi-function modes */
+enum bnx2x_mf_mode {
+	/** Single function */
+	BNX2X_MF_NONE = 0,
+	/** Switch-dependent (outer VLAN tagged on the wire) */
+	BNX2X_MF_SD,
+	/** Switch-independent (NPAR; MAC-based demux, untagged) */
+	BNX2X_MF_SI,
+	/** Some other mode (AFEX etc.) that we do not support */
+	BNX2X_MF_UNSUPPORTED,
+};
 
 /** Timeout waiting for MCP shmem validity signature (in 10ms ticks) */
 #define BNX2X_SHMEM_TIMEOUT_TICKS	500
+
+/** Timeout waiting for an MCP mailbox response (in 10ms ticks) */
+#define BNX2X_MCP_TIMEOUT_TICKS		500
 
 /** A bnx2x network card */
 struct bnx2x_nic {
@@ -135,6 +231,18 @@ struct bnx2x_nic {
 	uint32_t bc_rev;
 	/** MAC address as read from shmem */
 	uint8_t hw_addr[ETH_ALEN];
+	/** Firmware mailbox index (into shmem func_mb array) */
+	unsigned int fw_mb_idx;
+	/** Firmware mailbox sequence number */
+	uint32_t fw_seq;
+	/** Multi-function configuration base (BAR0 offset), 0 if none */
+	uint32_t mf_cfg_base;
+	/** Multi-function mode */
+	enum bnx2x_mf_mode mf_mode;
+	/** Outer VLAN tag (switch-dependent MF mode only) */
+	unsigned int mf_ov;
+	/** MCP load response code (while device is open) */
+	uint32_t load_code;
 };
 
 #endif /* _BNX2X_H */
