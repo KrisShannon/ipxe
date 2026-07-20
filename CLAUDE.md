@@ -30,6 +30,41 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (l)**: **Phase 4b hardware test: all control paths work,
+  but no packets reach the wire in either direction ⇒ the MAC (XMAC)
+  is not initialised — phase 5 is mandatory, not optional.** Evidence:
+  full open sequence clean ("function started/client ready/datapath
+  up", all ramrod completions incl. teardown HALT/TERMINATE/CFC_DEL);
+  TX completions return (TX:34 TXE:0) so PBF consumes frames, but the
+  switch sees ZERO packets from iPXE; switch sends many packets (incl.
+  LACP) and iPXE sees RX:0. Both directions die at the MAC boundary.
+  Diagnosis: (a) `port_mb.link_status` reflects only the MFW-owned PHY
+  link — the E3 XMAC MAC block is configured by the DRIVER in
+  bnx2x_link.c on every nic_load (LFA skips PHY init only, NOT MAC
+  bring-up); we never ported it. (b) Our bnx2x_reset_common puts XMAC
+  into reset (REG_1_CLEAR 0xd3ffff7f + REG_2_CLEAR incl. nothing? and
+  REG_2_SET restores only 0xfffc|MSTAT0|MSTAT1 — the XMAC reset bits
+  in RESET_REG_2 are ABOVE bit 15 and are never re-set) ⇒ XMAC likely
+  held in reset entirely.
+  **Next session (phase 5, minimal MAC bring-up), port from Linux
+  bnx2x_link.c:**
+  - `bnx2x_xmac_init`: RESET_REG_2 CLEAR/SET of
+    MISC_REGISTERS_RESET_REG_2_XMAC and _XMAC_SOFT (get bit values from
+    bnx2x_reg.h!), XMAC core config incl. **4-port mode handling**
+    (57840 rNDC!), xmac_base = GRCBASE_XMAC0/XMAC1 by port.
+  - `bnx2x_xmac_enable`: XMAC_REG_CTRL TX_EN|RX_EN,
+    XMAC_REG_RX_MAX_SIZE, pause off; skip PFC/stats.
+  - `bnx2x_set_xumac_nig`: NIG_REG_P0_MAC_IN_EN/OUT_EN (+port offset)
+    and pause-enable gates.
+  - Call at end of datapath bring-up (speed from link_status = 10G
+    fixed; no PHY touch). Also check bnx2x_link.c for E3 "usem/xmac
+    rx flush" or BRB/NIG enable steps adjacent to xmac_enable in
+    bnx2x_avoid_link_flap / bnx2x_link_update — mirror whatever the
+    LFA path does after a chip reset.
+  - Fetch: bnx2x_link.c + bnx2x_link.h into scratchpad reference dir.
+  ifstat evidence archived: TX counts rise with TXE=0 while switch RX
+  counters stay 0 — remember this signature means "MAC dead".
+
 - **2026-07-20 (k)**: **Phase 4b datapath implemented** (`bnx2x_eth.c`).
   ifopen after function-start now: maps BAR2 doorbells (probe; 4K, cid0
   @ offset 0, db_size 8) → fp SB (0x40) config in CSTORM IRO[136/137/
