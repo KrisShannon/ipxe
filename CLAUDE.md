@@ -30,6 +30,12 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (e)**: Phase-3 infrastructure validated on hardware: probe
+  shows `storm firmware 7.13.21.0 (1804 init ops, 5471 dwords data, 387
+  IROs)` on all six functions. Init mode flags confirmed: rNDC 57840 =
+  `000160d1` (ASIC|PORT4|E3|E3_B0|COS3|SF|LE), 57810 = `000160b1` (PORT2
+  variant) — **both chips are E3 B0 silicon**. Lesson recorded: DEBUG
+  makeflag must list every driver object (see Build & test).
 - **2026-07-20 (d)**: Phase 3 infrastructure: storm firmware
   `bnx2x-e2-7.13.21.0.fw` (sha256 7ee27cf1...) embedded via generator
   `src/drivers/net/bnx2x/bnx2x_mkfw.py` → committed `bnx2x_fw.h` (init_data
@@ -264,8 +270,19 @@ make -j$(nproc) bin-x86_64-efi/ipxe.efi          # normal build
 make -j$(nproc) bin-x86_64-efi/ipxe.efi DEBUG=bnx2x   # driver debug output
 ```
 
-Debug output goes to the console (serial included under EFI). `DEBUG=bnx2x:3`
-for extra-verbose (`DBGC2`) output.
+**DEBUG flags: every driver source file is a separate iPXE debug object and
+must be listed explicitly.** The canonical set for hardware testing is
+currently:
+
+```
+DEBUG=bnx2x:3,bnx2x_init:3
+```
+
+(Extend this list whenever a new .c file is added to the driver — and call
+the full string out in test instructions every time.) `:3` enables the
+extra-verbose `DBGC2` output; plain `DEBUG=bnx2x,bnx2x_init` gives the
+one-line-per-event `DBGC` output. Debug output goes to the console (serial
+included under EFI).
 
 For interactive hardware testing, embed a script so iPXE drops to the shell
 instead of autobooting (and rebooting on failure). An embedded script runs
