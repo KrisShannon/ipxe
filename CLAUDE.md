@@ -30,6 +30,31 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (h)**: **Phase 4a slowpath infrastructure implemented**
+  (`bnx2x_sp.c`/`bnx2x_sp.h`). ifopen now, after LOAD_DONE: allocates
+  def SB (0x40)/EQ page/SPQ page/ramrod buffer → configures the def SB
+  in CSTORM (IRO[145/146/148]: zeroed+SB_ENABLED data with sp_sb host
+  address, igu_dsb_id, IGU_SEG_ACCESS_DEF, pf/vnic, vf_id 0xff; attn
+  block id + IGU_REG_ATTN_MSG_ADDR_L/H set) → func_en=1 + vf_to_pf=pfid
+  in all four storms (IRO X47/48 C153/154 T107/108 U182/183) → SPQ page
+  base+prod=0 via XSEM_REG_FAST_MEMORY+IRO[30/31] → EQ ring (256×16B,
+  last elem = self next-page ptr, prod=256, event_ring_data w/ sb_id
+  0xde index 7 via IRO[157], prod updates via REG_WR16 IRO[158]) →
+  **FUNCTION_START ramrod posted and completion polled** via sp_sb
+  index_values[7] + EQ consume + IGU ack(running_index, NOP, update).
+  SPE format: word0=le32(cmd<<24 | port<<23|vn<<17|cid), word1=
+  le32(conn_type|pfid<<8), word2/3=data hi/lo; prod (u16) to
+  BAR_XSTRORM_INTMEM+IRO[31]. function_start_data: SF mode, path_id,
+  STATIC_COS, dmae_cmd_id 13, inner_rss 1, sd_vlan_eth_type 0x8100.
+  ifclose: FUNCTION_STOP ramrod → free → MCP unload → hw free.
+  **NOT yet hardware-tested.** Test with
+  `DEBUG=bnx2x:3,bnx2x_init:3,bnx2x_hw:3,bnx2x_sp:3`: ifopen should
+  log "function started"; watch for sp completion timeout (would mean
+  EQ/def-SB DMA not working — first real DMA test of the storm fw!),
+  and EQ event opcode mismatches. ifclose should log nothing new
+  (FUNCTION_STOP completes silently at :3 via DBGC2 EQ event line).
+  Next: 4b datapath (fp SB, client setup via ETH_CLIENT_SETUP +
+  CLASSIFICATION_RULES/FILTER_RULES, RX/CQ + TX rings, BAR2 doorbell).
 - **2026-07-20 (g)**: **Phase 3 VALIDATED ON HARDWARE.** Full
   common+port+function init ran to completion on the 57840 rNDC pf0:
   all block init tables executed (op ranges logged and sane), storm
@@ -439,7 +464,7 @@ must be listed explicitly.** The canonical set for hardware testing is
 currently:
 
 ```
-DEBUG=bnx2x:3,bnx2x_init:3,bnx2x_hw:3
+DEBUG=bnx2x:3,bnx2x_init:3,bnx2x_hw:3,bnx2x_sp:3
 ```
 
 (Extend this list whenever a new .c file is added to the driver — and call

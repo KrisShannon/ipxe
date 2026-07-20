@@ -351,6 +351,15 @@ struct bnx2x_nic;
 /* Timers-workaround DRAM alignment value (BNX2X_RX_ALIGN_SHIFT(6) - 5) */
 #define BNX2X_PXP_DRAM_ALIGN			1
 
+#define IGU_REG_ATTN_MSG_ADDR_H			0x13011c
+#define IGU_REG_ATTN_MSG_ADDR_L			0x130120
+
+/* Storm internal memory BAR0 windows */
+#define BAR_USTRORM_INTMEM			0x400000
+#define BAR_CSTRORM_INTMEM			0x410000
+#define BAR_XSTRORM_INTMEM			0x420000
+#define BAR_TSTRORM_INTMEM			0x430000
+
 /* IGU CAM mapping entry fields */
 #define IGU_REG_MAPPING_MEMORY_VECTOR_MASK	(0x3F<<1)
 #define IGU_REG_MAPPING_MEMORY_VECTOR_SHIFT	1

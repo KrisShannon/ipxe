@@ -34,6 +34,7 @@ FILE_SECBOOT ( PERMITTED );
 #include "bnx2x.h"
 #include "bnx2x_init.h"
 #include "bnx2x_hw.h"
+#include "bnx2x_sp.h"
 
 /** @file
  *
@@ -578,11 +579,19 @@ static int bnx2x_open ( struct net_device *netdev ) {
 	if ( ( rc = bnx2x_mcp_load_done ( bnx2x ) ) != 0 )
 		goto err_load_done;
 
+	/* Set up the slowpath channel and start the function */
+	if ( ( rc = bnx2x_sp_init ( bnx2x ) ) != 0 )
+		goto err_sp_init;
+
 	/* No datapath yet; refresh link state */
 	bnx2x_check_link ( netdev );
 
 	return 0;
 
+ err_sp_init:
+	bnx2x_mcp_unload ( bnx2x );
+	bnx2x_hw_free ( bnx2x );
+	return rc;
  err_load_done:
 	bnx2x_hw_free ( bnx2x );
  err_hw_init:
@@ -600,6 +609,12 @@ static int bnx2x_open ( struct net_device *netdev ) {
  */
 static void bnx2x_close ( struct net_device *netdev ) {
 	struct bnx2x_nic *bnx2x = netdev->priv;
+
+	/* Stop the function */
+	bnx2x_func_stop ( bnx2x );
+
+	/* Free slowpath memory */
+	bnx2x_sp_free ( bnx2x );
 
 	/* Perform MCP unload handshake */
 	bnx2x_mcp_unload ( bnx2x );

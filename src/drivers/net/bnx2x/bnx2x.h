@@ -270,6 +270,20 @@ struct bnx2x_nic {
 	void *cdu_context;
 	/** QM queue-pointer memory (sixteen 4kB pages, while open) */
 	void *qm_mem;
+	/** Default (slowpath) status block */
+	void *def_sb;
+	/** Event queue ring (one page) */
+	void *eq_ring;
+	/** Slowpath queue (one page) */
+	void *spq;
+	/** Ramrod data buffer */
+	void *sp_data;
+	/** Slowpath queue producer index */
+	unsigned int spq_prod_idx;
+	/** Event queue consumer */
+	unsigned int eq_cons;
+	/** Event queue producer */
+	unsigned int eq_prod;
 };
 
 /**
