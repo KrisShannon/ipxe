@@ -30,6 +30,35 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (aa)**: **57810 CROSS-CHECK IS THE BREAKTHROUGH: on
+  the 2-port chip ONE frame reached the parser (RXDIAG prs_packets
+  1, after LBTEST's clear-on-read) — almost certainly the MACLB
+  loopback frame, dropped before the CQE by storm self-source-MAC
+  pruning (our test frame used our own MAC as source). On the
+  57840, prs has NEVER counted a MAC-side frame.** ⇒ MAC→NIG works
+  in 2-port (Single Port) mode and is dead in 4-port (Dual Port)
+  mode. New prime theory: MISC_REG_XMAC_CORE_PORT_MODE description
+  says it is a strap for the "XMAC_MP core" — ONE multi-port MAC
+  core per path whose system side in Dual Port Mode (=1) is a
+  time-multiplexed interface shared by both ports; the mux may only
+  run when BOTH port instances are enabled. Vendor epoch: all four
+  UEFI driver instances active (all XMACs enabled) → RX worked.
+  iPXE disconnects every vendor instance (each Stop() disables its
+  MAC), we enable only our own port ⇒ mux dead ⇒ explains every
+  observation incl. TX working (NIG-side muxing) and all state
+  combinations failing. This build: (1) MACLB source MAC changed to
+  NOT be our own (last byte ^1) so storm self-source pruning cannot
+  mask a working path — on the 57810 MACLB should now produce a
+  real RX CQE (idx1 advance, ifstat RX 1); (2) 57840 4-port: after
+  enabling our XMAC, minimally configure + enable the SIBLING XMAC
+  of the path (other port's instance; logs "sibling XMAC ctrl was
+  X" — vendor value informative: 0 would confirm UEFI Stop()
+  disabled it). Tests (cold boot, usual DEBUG string): (a) ifopen
+  net4 / ifclose net4 — expect MACLB idx1 to ADVANCE now; (b)
+  ifopen net0 + arping + ifclose — if sibling theory right, MACLB
+  passes and wire RX works ⇒ phase 6. Paste MACLB + sibling +
+  RXDIAG lines for both.
+
 - **2026-07-20 (z)**: **XMAC FULLY EXONERATED: MACLB fails even on
   verbatim vendor XMAC state (no reset, all registers vendor's own,
   wide 0x00-0x1fc window recorded and identical).** Every reset

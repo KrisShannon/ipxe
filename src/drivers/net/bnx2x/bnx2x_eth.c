@@ -482,7 +482,10 @@ static void bnx2x_mac_lb_test ( struct bnx2x_nic *bnx2x,
 	frame = iob_put ( iobuf, 60 );
 	memset ( frame, 0, 60 );
 	memcpy ( frame, netdev->ll_addr, ETH_ALEN );		/* dest: us */
-	memcpy ( ( frame + 6 ), netdev->ll_addr, ETH_ALEN );	/* src: us */
+	memcpy ( ( frame + 6 ), netdev->ll_addr, ETH_ALEN );
+	frame[11] ^= 0x01;	/* src: NOT our own MAC - the storm
+				 * firmware prunes self-sourced frames,
+				 * which would mask a working path */
 	frame[12] = 0x88;					/* local */
 	frame[13] = 0xb5;					/* experimental */
 	for ( i = 14 ; i < 60 ; i++ )
