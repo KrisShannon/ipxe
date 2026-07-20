@@ -471,6 +471,8 @@ static int bnx2x_set_rx_mode ( struct bnx2x_nic *bnx2x ) {
  * path accounts for it.
  */
 static void bnx2x_mac_lb_test ( struct bnx2x_nic *bnx2x,
+				struct net_device *netdev ) __unused;
+static void bnx2x_mac_lb_test ( struct bnx2x_nic *bnx2x,
 				struct net_device *netdev ) {
 	uint32_t xmac_base = ( bnx2x->port ? GRCBASE_XMAC1 : GRCBASE_XMAC0 );
 	uint32_t mstat = ( bnx2x->port ? 0x162800 : 0x162000 );
@@ -626,11 +628,12 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	 * bnx2x_lb_test ( bnx2x );
 	 */
 
-	/* XMAC line-local loopback self-test: our own TX returns at
-	 * the MAC line side, exercising the XMAC RX -> NIG -> BRB ->
-	 * host path end to end with no wire involvement
+	/* XMAC line-local loopback self-test DISABLED now that RX
+	 * works (it injects one stray frame per open, surfacing as a
+	 * harmless RXE).  Re-enable if the RX path regresses.
+	 *
+	 * bnx2x_mac_lb_test ( bnx2x, netdev );
 	 */
-	bnx2x_mac_lb_test ( bnx2x, netdev );
 
 	DBGC ( bnx2x, "BNX2X %p datapath up\n", bnx2x );
 	return 0;

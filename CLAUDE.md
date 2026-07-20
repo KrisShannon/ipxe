@@ -30,6 +30,35 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ag)**: **RX WORKS ON BOTH CHIPS.** ifstat RX:14
+  (net0/57840) and RX:15 (net4/57810); STATS shows tstorm accepting
+  6/5/3 and ustorm no_buff 0 — the BNX2X_RX_FILL 8→48 change was
+  the fix: the storm firmware has a minimum-free-RX-buffer
+  threshold somewhere above 8, and every frame was dropped
+  no_buff_discard until the ring was properly stocked. (The RXE 1
+  "Operation not supported" per port was the MACLB self-test frame
+  — experimental ethertype rejected by the net stack after
+  SUCCESSFUL delivery; MACLB now disabled in eth_open, function
+  kept __unused for regression use.) PHASES 4+5 COMPLETE. **PHASE 6
+  NOW: (a) `ifopen net0` + `vcreate --tag 602 net0` + `dhcp
+  net0-602` on the tagged-VLAN-602 switch port — note our NIG reset
+  wipes the MFW RMP rules incl. the UDP 67/68 DHCP-steal rules, so
+  DHCP replies should reach the host; (b) re-enable LACP on the
+  switch port (add to port-channel), ifopen net0, wait, check
+  switch port-channel status — iPXE's eth_slow LACP responder
+  should bring the channel up (we accept all-multicast so LACPDUs
+  on 01:80:c2:00:00:02 are delivered; verify with DEBUG add
+  eth_slow if needed); then vcreate+dhcp over the LACP port.**
+  After phase 6 validates: cleanup pass — strip diag scaffolding
+  (LBTEST/MACLB/RXDIAG/STATS dump/XMACPRE), re-test which
+  experimental init steps are actually needed (forced XMAC reset,
+  CTRL cycle, XON toggle, sibling XMAC enable, EMAC0_IN_EN, NIG
+  reset — keep NIG reset? it conveniently kills the MFW DHCP-steal
+  RMP rules, but breaks BMC inband mgmt via these ports), find the
+  real fill threshold (bisect 8..48), consider CQ ring of 2 pages +
+  deeper BD ring, TX len-18 mystery frames, warm-reboot-to-OS
+  check, then trim for upstream.
+
 - **2026-07-20 (af)**: **STATS_QUERY WORKED AND NAMED THE FAULT:
   TSTORM accepts every frame for our client (net0: ucast 6/bcast 5/
   mcast 3 = exactly the test traffic; net4 long run: 6560 frames),
