@@ -227,6 +227,17 @@ make -j$(nproc) bin-x86_64-efi/ipxe.efi DEBUG=bnx2x   # driver debug output
 Debug output goes to the console (serial included under EFI). `DEBUG=bnx2x:3`
 for extra-verbose (`DBGC2`) output.
 
+For interactive hardware testing, embed a script so iPXE drops to the shell
+instead of autobooting (and rebooting on failure). An embedded script runs
+*instead of* autoboot, and the `goto` loop stops `exit` from falling out of
+iPXE back to the firmware:
+
+```sh
+printf '#!ipxe\n:sh\nshell\ngoto sh\n' > shell.ipxe
+make -j$(nproc) bin-x86_64-efi/ipxe.efi DEBUG=bnx2x:3 EMBED=shell.ipxe
+util/genfsimg -o ipxe.iso bin-x86_64-efi/ipxe.efi
+```
+
 On hardware (serial console session):
 1. Boot the built `ipxe.efi` (via BMC virtual media ISO is fine —
    `util/genfsimg -o ipxe.iso bin-x86_64-efi/ipxe.efi` builds a bootable image).
