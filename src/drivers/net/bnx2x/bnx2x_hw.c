@@ -1301,12 +1301,23 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 			 ( chip_num == BNX2X_CHIP_NUM_57840_OBSOLETE ) );
 
 	/* In 4-port mode the XMAC block is shared by both ports of
-	 * the path: if it is already out of reset, the mode has been
-	 * set and it must not be reset again
+	 * the path, and Linux skips the reset when it is already out
+	 * of reset (the other port may be in active use).  We do NOT
+	 * skip: the vendor UEFI driver leaves the XMAC out of reset,
+	 * so the skip would mean running forever on its core state -
+	 * and hardware bisection (LBTEST vs wire RX) shows the RX
+	 * blockage lives between the MAC and the LLH.  No other
+	 * driver instance can be using the path's other port under
+	 * iPXE, so resetting the shared block is safe here (it will
+	 * briefly disrupt any management sideband riding this port).
 	 */
-	if ( ! ( is_57840 && bnx2x->port4mode &&
-		 ( bnx2x_readl ( bnx2x, MISC_REG_RESET_REG_2 ) &
-		   MISC_REGISTERS_RESET_REG_2_XMAC ) ) ) {
+	if ( ( is_57840 && bnx2x->port4mode &&
+	       ( bnx2x_readl ( bnx2x, MISC_REG_RESET_REG_2 ) &
+		 MISC_REGISTERS_RESET_REG_2_XMAC ) ) ) {
+		DBGC ( bnx2x, "BNX2X %p XMAC out of reset (4-port): "
+		       "resetting anyway\n", bnx2x );
+	}
+	if ( 1 ) {
 
 		/* Hard reset */
 		bnx2x_writel ( bnx2x, MISC_REGISTERS_RESET_REG_2_XMAC,

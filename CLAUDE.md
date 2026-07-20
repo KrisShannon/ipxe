@@ -30,6 +30,40 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (u)**: **BISECTION COMPLETE: NIG/BRB/PRS proven good
+  (LBTEST prs_packets 4), wire RX still dead ⇒ blockage is INSIDE
+  the XMAC→LLH hop.** CTRL off/on cycle did not help either. Also
+  learned: PRS_REG_NUM_OF_PACKETS appears CLEAR-ON-READ (read 4 at
+  LBTEST, 0 at close) — earlier zero readings remain valid (each was
+  the first read after a traffic window). LBTEST counted 4 for 2
+  injected packets (maybe per-beat counting or E2/E3 debug format
+  framing — irrelevant, packets flowed). The injected multicasts did
+  NOT surface as RX CQEs (fp_sb idx1 stayed 1, ifstat RX 0) — 16-byte
+  runts with garbage protocol presumably dropped at/after PRS;
+  acceptable. Remaining theory: XMAC core state inherited from the
+  vendor UEFI epoch (we, like Linux LFA, skip the hard reset in
+  4-port mode when already out of reset) leaves the MAC system side
+  detached from the NIG; Linux first-load recovers because non-LFA
+  loads run the FULL PHY init (warpcore retrain + link flap) which
+  resyncs WC↔XMAC↔NIG. New experiment (this commit): FORCE the XMAC
+  hard reset + CORE_PORT_MODE/PHY_PORT_MODE + soft reset on every
+  xmac_enable (drop the 4-port skip — no other driver instance can
+  own the path's other port under iPXE; may briefly disrupt BMC
+  sideband if it rides this port). Expect new debug line "XMAC out
+  of reset (4-port): resetting anyway".
+  **Test (two stages in ONE run): (1) usual ifopen net0 +
+  arping/bcast-ping from VLAN 602 host; if RX still 0, then (2)
+  WITH net0 still open, bounce the switch port (shutdown / no
+  shutdown) and re-try the arping.** If RX starts working only
+  after the bounce ⇒ the missing piece is link-establishment-time
+  WC↔XMAC RX sync, and the likely production fix is: at ifopen do
+  UNLOAD_DONE *without* SKIP_LINK_RESET first (MFW resets and
+  re-trains the PHY itself while no driver is loaded) before
+  LOAD_REQ+LFA — no bnx2x_link.c port needed. If RX works
+  immediately after (1) ⇒ forced XMAC reset was the fix. Collect
+  LBTEST + RXDIAG + ifstat as usual, plus note WHEN (if at all) RX
+  came alive relative to the bounce.
+
 - **2026-07-20 (t)**: **XON toggle did NOT fix RX. Two new probes in
   one build: XMAC CTRL off/on cycle (fix candidate 2) + NIG debug
   packet injection (bisection test).** Latest run: 18 good frames at
