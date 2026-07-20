@@ -30,6 +30,39 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (x)**: **MACLB verdict: XMAC system side broken
+  generally — even the XMAC's own line-looped frame (mstat_rx 0->1,
+  counted at the same tap as wire frames) never reaches the NIG
+  (idx1 1->1). port_swap 0, MSTAT1 all zero, p1_macfifo empty ⇒ no
+  crossed port.** So the fault is inside the XMAC between line RX
+  (counts fine) and system-side output (dead), with TX crossing the
+  same boundary fine. Prime suspects now: XMAC registers NO bnx2x
+  driver ever writes, sitting at raw silicon defaults since we hard
+  reset the block. The XMAC is Broadcom switch IP; its real register
+  map (offsets match bnx2x_reg.h exactly) includes XMAC_MODE (+0x08)
+  and XMAC_RX_CTRL (+0x30), RX SA (+0x38), RX_VLAN_TAG (+0x48) —
+  all unnamed in bnx2x_reg.h. Under the vendor UEFI driver these
+  held working values; a full Linux bnx2x load never resets the
+  XMAC on this board (4-port skip) so it inherits them; WE reset
+  the block and never restore the unknowns. This round (commit):
+  (1) "XMACPRE" dump — the full 32-dword XMAC window BEFORE our
+  reset: **on a cold boot this is the vendor driver's working
+  config, the reference to diff against**; (2) "RXDIAG xmac" dump —
+  same window at close (our config); (3) "RXDIAG legacy" line —
+  NIG_EMAC0_EN/EMAC0_IN_EN/BMAC0_IN/OUT/REGS/EGRESS_EMAC0_OUT/
+  NO_CRC (legacy gates, also silicon-default since our NIG reset);
+  (4) experiment: NIG_REG_EMAC0_IN_EN=1 written in xmac_enable
+  (candidate second series gate; harmless — EMAC is in reset).
+  **Test MUST be a cold boot** (so XMACPRE captures vendor state):
+  usual DEBUG string, ifopen net0, arping/bcast, ifclose. Paste
+  XMACPRE + MACLB + all RXDIAG lines. Next action: diff XMACPRE vs
+  "RXDIAG xmac", identify the RX-side register(s) we fail to set
+  (started for the diff: dwords 0-1 CTRL, 8-9 =+0x20 TX_CTRL,
+  10-11 =+0x28 TX SA, 12-13 =+0x30 RX_CTRL!, 14-15 =+0x38 RX SA,
+  16 =+0x40 RX_MAX_SIZE, 18 =+0x48 RX_VLAN_TAG?, 20 =+0x50
+  RX_LSS_CTRL, 26 =+0x68 PAUSE_CTRL, 28/29 =+0x70/74 PFC_CTRL/HI),
+  then write them from xmac_enable and drop the probes.
+
 - **2026-07-20 (w)**: **NIG reset did NOT fix wire RX either — but it
   proves the wedge theory wrong and narrows the fault to the
   XMAC↔NIG interface itself: freshly-reset NIG (RMP dump now all

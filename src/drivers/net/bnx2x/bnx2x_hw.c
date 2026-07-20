@@ -1315,6 +1315,21 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 			 ( chip_num == BNX2X_CHIP_NUM_57840_2_20 ) ||
 			 ( chip_num == BNX2X_CHIP_NUM_57840_OBSOLETE ) );
 
+	/* Capture the XMAC register window BEFORE we touch anything:
+	 * on a cold boot this is the vendor UEFI driver's working
+	 * configuration - the reference to diff our own against
+	 */
+	{
+		unsigned int i;
+		DBGC ( bnx2x, "BNX2X %p XMACPRE", bnx2x );
+		for ( i = 0 ; i < 32 ; i++ ) {
+			DBGC ( bnx2x, " %08x",
+			       bnx2x_readl ( bnx2x,
+					     ( xmac_base + ( i * 4 ) ) ) );
+		}
+		DBGC ( bnx2x, "\n" );
+	}
+
 	/* In 4-port mode the XMAC block is shared by both ports of
 	 * the path, and Linux skips the reset when it is already out
 	 * of reset (the other port may be in active use).  We do NOT
@@ -1434,6 +1449,15 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 	/* Enable TX and RX */
 	bnx2x_writel ( bnx2x, ( XMAC_CTRL_REG_TX_EN | XMAC_CTRL_REG_RX_EN ),
 		       ( xmac_base + XMAC_REG_CTRL ) );
+
+	/* Open the legacy per-MAC ingress interface enable as well
+	 * (never written by the init tables; at silicon default since
+	 * we reset the NIG - candidate second gate in series with
+	 * P0_MAC_IN_EN)
+	 */
+	bnx2x_writel ( bnx2x, 1,
+		       ( 0x100a4 /* NIG_REG_EMAC0_IN_EN */ +
+			 ( bnx2x->port * 4 ) ) );
 
 	/* Open the NIG-to-MAC gates (no pause output) */
 	bnx2x_writel ( bnx2x, 1, ( bnx2x->port ? NIG_REG_P1_MAC_IN_EN :
@@ -1578,6 +1602,40 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 	       bnx2x_readl ( bnx2x, ( 0x162800 + 0x250 ) ),
 	       bnx2x_readl ( bnx2x, ( 0x162800 + 0x2a8 ) ),
 	       bnx2x_readl ( bnx2x, 0x1858c ) );	/* P1_RX_MACFIFO_EMPTY */
+
+	/* Raw dump of the full XMAC per-port register window: the
+	 * XMAC is Broadcom switch-IP whose real register map is wider
+	 * than the handful of offsets bnx2x_reg.h names (XMAC_MODE at
+	 * +0x08, XMAC_RX_CTRL at +0x30, RX SA at +0x38, RX_VLAN_TAG
+	 * at +0x48 are never written by any bnx2x driver).  After our
+	 * hard reset these hold raw silicon defaults.
+	 */
+	{
+		uint32_t xmac_base = ( bnx2x->port ? GRCBASE_XMAC1 :
+				       GRCBASE_XMAC0 );
+		DBGC ( bnx2x, "BNX2X %p RXDIAG xmac", bnx2x );
+		for ( i = 0 ; i < 32 ; i++ ) {
+			DBGC ( bnx2x, " %08x",
+			       bnx2x_readl ( bnx2x,
+					     ( xmac_base + ( i * 4 ) ) ) );
+		}
+		DBGC ( bnx2x, "\n" );
+	}
+
+	/* Legacy NIG per-MAC interface enables (also at silicon
+	 * defaults since our NIG reset; the init tables never write
+	 * them)
+	 */
+	DBGC ( bnx2x, "BNX2X %p RXDIAG legacy emac0_en %d emac0_in %d "
+	       "bmac0_in %d bmac0_out %d bmac0_regs_out %d egress_emac0_out "
+	       "%d no_crc %d\n", bnx2x,
+	       bnx2x_readl ( bnx2x, 0x1003c ),	/* NIG_EMAC0_EN */
+	       bnx2x_readl ( bnx2x, 0x100a4 ),	/* EMAC0_IN_EN */
+	       bnx2x_readl ( bnx2x, 0x100ac ),	/* BMAC0_IN_EN */
+	       bnx2x_readl ( bnx2x, 0x100e0 ),	/* BMAC0_OUT_EN */
+	       bnx2x_readl ( bnx2x, 0x100e8 ),	/* BMAC0_REGS_OUT_EN */
+	       bnx2x_readl ( bnx2x, 0x10120 ),	/* EGRESS_EMAC0_OUT_EN */
+	       bnx2x_readl ( bnx2x, 0x10044 ) );	/* INGRESS_EMAC0_NO_CRC */
 
 	/* Read back the USTORM RX producers for our queue zone */
 	for ( i = 0 ; i < 2 ; i++ ) {
