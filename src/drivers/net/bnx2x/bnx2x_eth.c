@@ -56,7 +56,12 @@ FILE_SECBOOT ( PERMITTED );
 #define BNX2X_RX_IOB_SIZE	( BNX2X_RX_BUF_SIZE + 128 )
 
 /** Number of RX buffers kept posted */
-#define BNX2X_RX_FILL		8
+/* Number of RX buffers kept posted.  The storm firmware refuses to
+ * place packets (USTORM no_buff_discard) when only a handful of
+ * buffers are available - Linux fills the whole 500-buffer ring.
+ * 48 keeps us under the single-page CQ ring's 63 usable CQEs.
+ */
+#define BNX2X_RX_FILL		48
 
 /** Ring geometry (single page each) */
 #define BNX2X_RX_BD_CNT		512	/* 8-byte BDs; last 2 next-page */

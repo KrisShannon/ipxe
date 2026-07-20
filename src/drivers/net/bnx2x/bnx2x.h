@@ -298,7 +298,7 @@ struct bnx2x_nic {
 	/** TX buffer descriptor ring (one page) */
 	void *tx_ring;
 	/** RX I/O buffers (FIFO order) */
-	struct io_buffer *rx_iobuf[8];
+	struct io_buffer *rx_iobuf[48];
 	/** TX I/O buffers (FIFO order) */
 	struct io_buffer *tx_iobuf[16];
 	/** RX BD producer (firmware-style skipping counter) */

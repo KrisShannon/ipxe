@@ -30,6 +30,35 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (af)**: **STATS_QUERY WORKED AND NAMED THE FAULT:
+  TSTORM accepts every frame for our client (net0: ucast 6/bcast 5/
+  mcast 3 = exactly the test traffic; net4 long run: 6560 frames),
+  ZERO classification discards, and USTORM drops every single one
+  with no_buff_discard (counts match 1:1).** The whole MAC/NIG/PRS
+  hunt was chasing phantoms — those counters are simply
+  dead/clear-on-read on E3; the ingress pipeline has worked all
+  along. USTORM believes there are no RX buffers. Verified correct
+  via offsets tool + IRO dump: client_init offsets ALL correct
+  (general/rx/tx @0x00/0x10/0x60, state @rx+0x34, max_bytes
+  @rx+0x12, bd/cqe_page @rx+0x18/0x28...), prods struct order
+  (LE: cqe_prod low16 | bd_prod high16 = our 0x00080009 = cqe 9 bd
+  8 CORRECT), IRO[217] = base 0x6000 m1 0x20 size 8 (canonical
+  USTORM qzone; qzone=cl_id=0 for pf0 on both test NICs), IRO[213]
+  agg data base 0xa000 size 0x2000. Remaining delta vs Linux:
+  Linux fills the whole ~500-buffer BD ring; we posted only 8.
+  Theory: fw has a minimum-free-buffer/batching threshold > 8 ⇒
+  permanent no_buff. THIS BUILD: BNX2X_RX_FILL 8 → 48 (rx_iobuf[]
+  sized to match; 48 < 63 usable CQEs of the single-page CQ ring).
+  If RX works: phase 6 time (also re-lower later to find the real
+  threshold + grow CQ to 2 pages if we want deeper rings). Also:
+  hostdump.c moved to debug/bnx2xdump.c (it broke the iPXE build
+  inside SRCDIRS). Linux-side mmap of resource0 failed with EINVAL
+  under lockdown LSM — alternatives: boot params lockdown=none (SB
+  off), or use `ethtool -d <if> raw on > regs.bin` (bnx2x get_regs
+  curated dump) — but with no_buff identified we likely don't need
+  the Linux capture. Test: usual DEBUG string, ifopen net0, arping
+  → **expect ifstat RX>0 at last**; then vcreate+dhcp, then LACP.
+
 - **2026-07-20 (ae)**: **STATS_QUERY ramrod ported + Linux-side
   comparison tool added (no custom kernel needed).** (1)
   bnx2x_stats_query_dump() in bnx2x_sp.c, called at ifclose before
