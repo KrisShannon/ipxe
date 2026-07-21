@@ -22,8 +22,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * All structure layouts were computed against the Linux v6.6
- * bnx2x_hsi.h with a host offsetof tool (see CLAUDE.md).
+ * All structure layouts were computed as offsetof()/sizeof() by a
+ * host program compiled against the Linux v6.6 bnx2x_hsi.h.
  */
 
 FILE_LICENCE ( GPL2_ONLY );
@@ -33,6 +33,7 @@ FILE_SECBOOT ( PERMITTED );
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <assert.h>
 #include <byteswap.h>
 #include <ipxe/timer.h>
 #include <ipxe/malloc.h>
@@ -55,32 +56,27 @@ FILE_SECBOOT ( PERMITTED );
 /** RX buffer allocation size (headroom for placement offset) */
 #define BNX2X_RX_IOB_SIZE	( BNX2X_RX_BUF_SIZE + 128 )
 
-/** Number of RX buffers kept posted.  The storm firmware refuses to
- * place packets (USTORM no_buff_discard) when only a handful of
- * buffers are available - Linux fills the whole 500-buffer ring -
- * and a shallow ring cannot absorb a TCP window burst at 10G given
- * iPXE's polling latency.  120 keeps us under the two-page CQ
- * ring's 126 usable CQEs.
- */
-#define BNX2X_RX_FILL		120
+/** Descriptor sizes */
+#define BNX2X_RX_BD_SIZE	8	/* struct eth_rx_bd */
+#define BNX2X_RCQ_CQE_SIZE	64	/* union eth_rx_cqe (E2/E3) */
+#define BNX2X_TX_BD_SIZE	16	/* union eth_tx_bd_types */
 
-/** Ring geometry (single page each) */
-#define BNX2X_RX_BD_CNT		512	/* 8-byte BDs; last 2 next-page */
+/** Ring geometry */
+#define BNX2X_RX_BD_CNT		512	/* one page; last 2 next-page */
 #define BNX2X_RX_BD_USABLE	( BNX2X_RX_BD_CNT - 2 )
-#define BNX2X_RCQ_PAGES		2	/* 64-byte CQEs */
+#define BNX2X_RCQ_PAGES		2
 #define BNX2X_RCQ_PER_PAGE	64	/* per page; last 1 next-page */
 #define BNX2X_RCQ_CNT		( BNX2X_RCQ_PAGES * BNX2X_RCQ_PER_PAGE )
-#define BNX2X_TX_BD_CNT		256	/* 16-byte BDs; last 1 next-page */
+#define BNX2X_RCQ_USABLE	( BNX2X_RCQ_CNT - BNX2X_RCQ_PAGES )
+#define BNX2X_TX_BD_CNT		256	/* one page; last 1 next-page */
 #define BNX2X_TX_BD_USABLE	( BNX2X_TX_BD_CNT - 1 )
 
-/** Client id.  On E2+ the client id must equal the IGU status block
- * id (Linux bnx2x_fp_cl_id) so that it is unique chip-wide: the
- * client id is also the queue-zone id indexing the USTORM RX
- * producers in PER-PATH storm RAM, and the old vn-based formula
- * collided between the two ports of a path when both were open
- * (each port clobbered the other's producers, wedging RX teardown).
+/** Fastpath status block: allocation size and the status block
+ * indices delivering the RX CQ and TX (CoS 0) consumers
  */
-#define BNX2X_CL_ID( bnx2x )	( (bnx2x)->igu_base_sb )
+#define BNX2X_FP_SB_SIZE		0x40
+#define BNX2X_HC_INDEX_RX_CQ_CONS	1
+#define BNX2X_HC_INDEX_TX_CQ_CONS_COS0	5
 
 /**
  * Advance an RX BD producer/consumer index, skipping next-page slots
@@ -169,8 +165,7 @@ static uint8_t bnx2x_calc_crc8 ( uint32_t data, uint8_t crc ) {
  */
 static void bnx2x_set_ctx_validation ( struct bnx2x_nic *bnx2x ) {
 	uint8_t *cxt = bnx2x->cdu_context;	/* cid 0: first 1kB entry */
-	uint32_t hw_cid = ( ( bnx2x->port << 23 ) |
-			    ( ( bnx2x->pfid >> 1 ) << 17 ) | BNX2X_ETH_CID );
+	uint32_t hw_cid = BNX2X_HW_CID ( bnx2x, BNX2X_ETH_CID );
 	uint32_t valid_data;
 
 	/* CDU_RSRVD_VALUE_TYPE_A(HW_CID, region, ETH_CONNECTION_TYPE):
@@ -264,7 +259,7 @@ static void bnx2x_update_rx_prods ( struct bnx2x_nic *bnx2x ) {
 static int bnx2x_post_rx_buffer ( struct bnx2x_nic *bnx2x ) {
 	struct io_buffer *iobuf;
 	unsigned int slot = ( bnx2x->rx_bd_prod & ( BNX2X_RX_BD_CNT - 1 ) );
-	uint32_t *bd = ( bnx2x->rx_bd_ring + ( slot * 8 ) );
+	uint32_t *bd = ( bnx2x->rx_bd_ring + ( slot * BNX2X_RX_BD_SIZE ) );
 	physaddr_t phys;
 
 	iobuf = alloc_iob ( BNX2X_RX_IOB_SIZE );
@@ -296,7 +291,8 @@ static int bnx2x_post_rx_buffer ( struct bnx2x_nic *bnx2x ) {
  * the consumer index and breaks every subsequent completion.
  */
 static int bnx2x_wait_ramrod_cqe ( struct bnx2x_nic *bnx2x ) {
-	uint16_t *rx_cons_sb = ( bnx2x->fp_sb + ( 1 * 2 ) ); /* index 1 */
+	uint16_t *rx_cons_sb = ( bnx2x->fp_sb +
+				 ( BNX2X_HC_INDEX_RX_CQ_CONS * 2 ) );
 	struct io_buffer *iobuf;
 	uint32_t *cqe;
 	unsigned int hw_cons;
@@ -318,9 +314,10 @@ static int bnx2x_wait_ramrod_cqe ( struct bnx2x_nic *bnx2x ) {
 		}
 		while ( hw_cons != ( bnx2x->rx_cq_cons & 0xffff ) ) {
 			slot = ( bnx2x->rx_cq_cons & ( BNX2X_RCQ_CNT - 1 ) );
-			cqe = ( bnx2x->rx_cq_ring + ( slot * 64 ) );
+			cqe = ( bnx2x->rx_cq_ring +
+				( slot * BNX2X_RCQ_CQE_SIZE ) );
 			type = ( cqe[0] & 0x3 );
-			memset ( cqe, 0, 64 );
+			memset ( cqe, 0, BNX2X_RCQ_CQE_SIZE );
 			bnx2x->rx_cq_cons =
 				bnx2x_next_rcq_idx ( bnx2x->rx_cq_cons );
 			bnx2x->rx_cq_prod =
@@ -391,9 +388,10 @@ static int bnx2x_client_setup ( struct bnx2x_nic *bnx2x ) {
 	/* rx */
 	d[0x13] = 6;		/* cache_line_alignment_log_size (64) */
 	d[0x16] = cl_id;			/* client_qzone_id */
-	d[0x1b] = 0;			/* inner_vlan_removal off (VLANs!) */
+	d[0x1b] = 0;	/* inner_vlan_removal off: tags are handled in
+			 * software by iPXE's VLAN support */
 	d[0x1d] = sb;				/* status_block_id */
-	d[0x1e] = 1;			/* rx_sb_index_number (RX_CQ_CONS) */
+	d[0x1e] = BNX2X_HC_INDEX_RX_CQ_CONS;	/* rx_sb_index_number */
 	d[0x1f] = 1;		/* dont_verify_rings_pause_thr_flg */
 	d[0x22] = ( BNX2X_RX_BUF_SIZE & 0xff );	/* max_bytes_on_bd le16 */
 	d[0x23] = ( BNX2X_RX_BUF_SIZE >> 8 );
@@ -411,7 +409,7 @@ static int bnx2x_client_setup ( struct bnx2x_nic *bnx2x ) {
 
 	/* tx @0x60 */
 	d[0x61] = sb;				/* tx_status_block_id */
-	d[0x62] = 5;		/* tx_sb_index_number (TX_CQ_CONS_COS0) */
+	d[0x62] = BNX2X_HC_INDEX_TX_CQ_CONS_COS0;	/* tx_sb_index_number */
 	d[0x63] = cl_id;			/* tss_leading_client_id */
 	/* tx_bd_page_base @0x68 */
 	* ( ( uint32_t * ) &d[0x68] ) = cpu_to_le32 ( tx_phys & 0xffffffffUL );
@@ -509,8 +507,14 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	unsigned int i;
 	int rc;
 
+	/* The RX buffer FIFO must fit within the usable completion
+	 * queue entries, or a full ring of completions could overrun
+	 * the queue
+	 */
+	build_assert ( BNX2X_RX_FILL <= BNX2X_RCQ_USABLE );
+
 	/* Allocate rings and fastpath status block */
-	bnx2x->fp_sb = malloc_phys ( 0x40, 0x40 );
+	bnx2x->fp_sb = malloc_phys ( BNX2X_FP_SB_SIZE, BNX2X_FP_SB_SIZE );
 	bnx2x->rx_bd_ring = malloc_phys ( BNX2X_PAGE_SIZE, BNX2X_PAGE_SIZE );
 	bnx2x->rx_cq_ring = malloc_phys ( ( BNX2X_RCQ_PAGES *
 					    BNX2X_PAGE_SIZE ),
@@ -521,7 +525,7 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 		rc = -ENOMEM;
 		goto err;
 	}
-	memset ( bnx2x->fp_sb, 0, 0x40 );
+	memset ( bnx2x->fp_sb, 0, BNX2X_FP_SB_SIZE );
 	memset ( bnx2x->rx_bd_ring, 0, BNX2X_PAGE_SIZE );
 	memset ( bnx2x->rx_cq_ring, 0, ( BNX2X_RCQ_PAGES *
 					 BNX2X_PAGE_SIZE ) );
@@ -540,7 +544,8 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 
 	/* Next-page pointers (rings loop back to themselves) */
 	phys = virt_to_bus ( bnx2x->rx_bd_ring );
-	next = ( bnx2x->rx_bd_ring + ( BNX2X_RX_BD_USABLE * 8 ) );
+	next = ( bnx2x->rx_bd_ring +
+		 ( BNX2X_RX_BD_USABLE * BNX2X_RX_BD_SIZE ) );
 	next[0] = cpu_to_le32 ( phys & 0xffffffffUL );		/* addr_lo */
 	next[1] = cpu_to_le32 ( ( ( uint64_t ) phys ) >> 32 );
 	next[2] = cpu_to_le32 ( phys & 0xffffffffUL );
@@ -550,12 +555,13 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 				     ( ( ( i + 1 ) % BNX2X_RCQ_PAGES ) *
 				       BNX2X_PAGE_SIZE ) );
 		next = ( bnx2x->rx_cq_ring + ( i * BNX2X_PAGE_SIZE ) +
-			 ( ( BNX2X_RCQ_PER_PAGE - 1 ) * 64 ) );
+			 ( ( BNX2X_RCQ_PER_PAGE - 1 ) * BNX2X_RCQ_CQE_SIZE ) );
 		next[0] = cpu_to_le32 ( phys & 0xffffffffUL );	/* addr_lo */
 		next[1] = cpu_to_le32 ( ( ( uint64_t ) phys ) >> 32 );
 	}
 	phys = virt_to_bus ( bnx2x->tx_ring );
-	next = ( bnx2x->tx_ring + ( BNX2X_TX_BD_USABLE * 16 ) );
+	next = ( bnx2x->tx_ring +
+		 ( BNX2X_TX_BD_USABLE * BNX2X_TX_BD_SIZE ) );
 	next[0] = cpu_to_le32 ( phys & 0xffffffffUL );		/* addr_lo */
 	next[1] = cpu_to_le32 ( ( ( uint64_t ) phys ) >> 32 );
 
@@ -630,7 +636,7 @@ void bnx2x_eth_free ( struct bnx2x_nic *bnx2x ) {
 		bnx2x->rx_bd_ring = NULL;
 	}
 	if ( bnx2x->fp_sb ) {
-		free_phys ( bnx2x->fp_sb, 0x40 );
+		free_phys ( bnx2x->fp_sb, BNX2X_FP_SB_SIZE );
 		bnx2x->fp_sb = NULL;
 	}
 }
@@ -647,7 +653,7 @@ void bnx2x_eth_close ( struct net_device *netdev ) {
 	/* Stop the RX path and let the storms drain any in-flight
 	 * packets BEFORE halting the connection: packets cut mid-way
 	 * leave the never-reset NIG desynchronised from the BRB,
-	 * wedging RX for later sessions
+	 * wedging RX for subsequent opens
 	 */
 	bnx2x_xmac_quiesce ( bnx2x );
 
@@ -680,6 +686,21 @@ void bnx2x_eth_close ( struct net_device *netdev ) {
 }
 
 /**
+ * Ring the TX doorbell with the current producer value
+ *
+ * @v bnx2x		bnx2x device
+ */
+static void bnx2x_tx_doorbell ( struct bnx2x_nic *bnx2x ) {
+	uint32_t db;
+
+	/* doorbell_set_prod: header (DB_TYPE) | prod << 16 */
+	wmb();
+	db = ( 0x02 | ( ( bnx2x->tx_db_prod & 0xffff ) << 16 ) );
+	writel ( db, ( bnx2x->doorbells +
+		       ( BNX2X_ETH_CID * BNX2X_DB_STRIDE ) ) );
+}
+
+/**
  * Diagnose a full TX ring
  *
  * @v bnx2x		bnx2x device
@@ -696,12 +717,9 @@ void bnx2x_eth_close ( struct net_device *netdev ) {
  */
 static void bnx2x_tx_stall ( struct bnx2x_nic *bnx2x ) {
 	uint16_t *sb = bnx2x->fp_sb;
-	uint32_t db;
 
 	/* Re-ring the doorbell */
-	wmb();
-	db = ( 0x02 | ( ( bnx2x->tx_db_prod & 0xffff ) << 16 ) );
-	writel ( db, ( bnx2x->doorbells + ( BNX2X_ETH_CID * 8 ) ) );
+	bnx2x_tx_doorbell ( bnx2x );
 
 	if ( ! bnx2x->tx_stall_start ) {
 		bnx2x->tx_stall_start = currticks();
@@ -742,7 +760,6 @@ int bnx2x_eth_transmit ( struct net_device *netdev,
 	unsigned int slot;
 	uint32_t *bd;
 	physaddr_t phys;
-	uint32_t db;
 
 	/* Limit outstanding transmissions */
 	if ( ( bnx2x->tx_pkt_prod - bnx2x->tx_pkt_cons ) >=
@@ -763,7 +780,7 @@ int bnx2x_eth_transmit ( struct net_device *netdev,
 
 	/* Start BD */
 	slot = ( bnx2x->tx_bd_prod & ( BNX2X_TX_BD_CNT - 1 ) );
-	bd = ( bnx2x->tx_ring + ( slot * 16 ) );
+	bd = ( bnx2x->tx_ring + ( slot * BNX2X_TX_BD_SIZE ) );
 	phys = virt_to_bus ( iobuf->data );
 	bd[0] = cpu_to_le32 ( phys & 0xffffffffUL );		/* addr_lo */
 	bd[1] = cpu_to_le32 ( ( ( uint64_t ) phys ) >> 32 );	/* addr_hi */
@@ -778,7 +795,7 @@ int bnx2x_eth_transmit ( struct net_device *netdev,
 
 	/* Parse BD (E2): all zeros for plain L2 */
 	slot = ( bnx2x->tx_bd_prod & ( BNX2X_TX_BD_CNT - 1 ) );
-	bd = ( bnx2x->tx_ring + ( slot * 16 ) );
+	bd = ( bnx2x->tx_ring + ( slot * BNX2X_TX_BD_SIZE ) );
 	bd[0] = 0;
 	bd[1] = 0;
 	bd[2] = 0;
@@ -799,10 +816,7 @@ int bnx2x_eth_transmit ( struct net_device *netdev,
 	bnx2x->tx_db_prod +=
 		( ( ( bnx2x->tx_bd_prod & ( BNX2X_TX_BD_CNT - 1 ) ) < 2 ) ?
 		  3 : 2 );
-	wmb();
-	/* doorbell_set_prod: header (DB_TYPE) | prod << 16 */
-	db = ( 0x02 | ( ( bnx2x->tx_db_prod & 0xffff ) << 16 ) );
-	writel ( db, ( bnx2x->doorbells + ( BNX2X_ETH_CID * 8 ) ) );
+	bnx2x_tx_doorbell ( bnx2x );
 
 	DBGC2 ( bnx2x, "BNX2X %p TX %d len %zd\n", bnx2x,
 		( bnx2x->tx_pkt_prod - 1 ), iob_len ( iobuf ) );
@@ -816,8 +830,10 @@ int bnx2x_eth_transmit ( struct net_device *netdev,
  */
 void bnx2x_eth_poll ( struct net_device *netdev ) {
 	struct bnx2x_nic *bnx2x = netdev->priv;
-	uint16_t *tx_cons_sb = ( bnx2x->fp_sb + ( 5 * 2 ) ); /* index 5 */
-	uint16_t *rx_cons_sb = ( bnx2x->fp_sb + ( 1 * 2 ) ); /* index 1 */
+	uint16_t *tx_cons_sb = ( bnx2x->fp_sb +
+				 ( BNX2X_HC_INDEX_TX_CQ_CONS_COS0 * 2 ) );
+	uint16_t *rx_cons_sb = ( bnx2x->fp_sb +
+				 ( BNX2X_HC_INDEX_RX_CQ_CONS * 2 ) );
 	struct io_buffer *iobuf;
 	uint32_t *cqe;
 	unsigned int hw_cons;
@@ -851,7 +867,7 @@ void bnx2x_eth_poll ( struct net_device *netdev ) {
 	}
 	while ( ( bnx2x->rx_cq_cons & 0xffff ) != hw_cons ) {
 		slot = ( bnx2x->rx_cq_cons & ( BNX2X_RCQ_CNT - 1 ) );
-		cqe = ( bnx2x->rx_cq_ring + ( slot * 64 ) );
+		cqe = ( bnx2x->rx_cq_ring + ( slot * BNX2X_RCQ_CQE_SIZE ) );
 		type = ( cqe[0] & 0x3 );
 
 		if ( type == 0 ) {	/* fast path CQE */
@@ -873,7 +889,7 @@ void bnx2x_eth_poll ( struct net_device *netdev ) {
 			DBGC2 ( bnx2x, "BNX2X %p unexpected CQE %08x\n",
 				bnx2x, cqe[0] );
 		}
-		memset ( cqe, 0, 64 );
+		memset ( cqe, 0, BNX2X_RCQ_CQE_SIZE );
 		bnx2x->rx_cq_cons = bnx2x_next_rcq_idx ( bnx2x->rx_cq_cons );
 	}
 

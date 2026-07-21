@@ -41,9 +41,12 @@ FILE_SECBOOT ( PERMITTED );
  *
  * Broadcom/QLogic NetXtreme II 10/20-Gigabit Ethernet (bnx2x) driver
  *
- * Currently a probe-only skeleton: identifies the chip, locates the
- * MCP shared memory region, extracts the port MAC address and reports
- * MCP-maintained link state.  No datapath yet.
+ * Top level: PCI probe (chip identification, MCP shared memory
+ * discovery, multi-function configuration, MAC address), the MCP
+ * mailbox load/unload handshake, MCP-maintained link state, and the
+ * iPXE network device operations tying together the hardware init
+ * (bnx2x_hw.c), slowpath channel (bnx2x_sp.c) and Ethernet datapath
+ * (bnx2x_eth.c).
  *
  */
 
@@ -410,9 +413,9 @@ static void bnx2x_check_link ( struct net_device *netdev ) {
 	struct bnx2x_nic *bnx2x = netdev->priv;
 	uint32_t link_status;
 
-	/* Read MCP-maintained link status.  Validity of this field
-	 * when no full driver has ever been loaded is still to be
-	 * confirmed on real hardware (see CLAUDE.md).
+	/* Read MCP-maintained link status.  The management firmware
+	 * owns the PHY and keeps this field valid whether or not a
+	 * driver is loaded.
 	 */
 	link_status = bnx2x_shmem_readl ( bnx2x,
 			BNX2X_SHMEM_LINK_STATUS ( bnx2x->port ) );
@@ -491,13 +494,15 @@ static int bnx2x_mcp_load_request ( struct bnx2x_nic *bnx2x ) {
 		bnx2x, bnx2x->fw_seq );
 
 	/* Recover from any previous driver instance (vendor UNDI
-	 * driver, OS driver after a warm reboot, or an interrupted
-	 * iPXE session) by requesting and completing an unload.  This
-	 * is the (heavily simplified) equivalent of the Linux
-	 * driver's bnx2x_prev_unload(): we cannot yet perform the
-	 * "common" hardware cleanup for a chip left running by an
-	 * uncleanly-stopped previous driver, but the unload handshake
-	 * alone resets the MCP's load counts for this function.
+	 * driver, OS driver after a warm reboot, or an earlier iPXE
+	 * run that never closed) by requesting and completing an
+	 * unload.  This is a heavily simplified equivalent of the
+	 * Linux driver's bnx2x_prev_unload(): the "common" hardware
+	 * cleanup for a chip left running by an uncleanly-stopped
+	 * previous driver is not performed, but the unload handshake
+	 * resets the MCP's load counts for this function, and the
+	 * resulting COMMON_CHIP load level makes our own open perform
+	 * a full chip reset and re-init anyway.
 	 */
 	if ( ( rc = bnx2x_mcp_unload ( bnx2x ) ) != 0 ) {
 		DBGC ( bnx2x, "BNX2X %p previous-unload failed\n", bnx2x );

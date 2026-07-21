@@ -30,6 +30,29 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-21 (ax)**: **Source cleanup round 1 (comments + macro
+  consistency), user-requested.** (1) Comments: removed every
+  CLAUDE.md reference from driver sources (offsetof-method now
+  described inline), fixed the badly stale bnx2x.c @file comment
+  ("probe-only skeleton, no datapath yet"!), updated the stale
+  link-status-validity TBD (validated long ago), reworded
+  "sessions" → "opens"/"runs", generalised the rNDC-BMC note,
+  clarified the inner-vlan-removal comment. Environment-specific
+  hardware facts (Dell rNDC 0x168d chip-number quirk) kept — they
+  are board facts, not workflow. (2) Macros: BNX2X_CL_ID +new
+  BNX2X_HW_CID moved/added to bnx2x.h and now used in
+  bnx2x_sp.c (sp_post hw_cid, stats cl_id) and bnx2x_hw.c (rx_diag
+  qzone) which had the formulas inlined; rx_iobuf[120]/tx_iobuf[16]
+  now sized by BNX2X_RX_FILL/BNX2X_TX_MAX_PENDING (both defined in
+  bnx2x.h before the struct; eth.c copy removed) with a new
+  build_assert(BNX2X_RX_FILL <= BNX2X_RCQ_USABLE); new
+  BNX2X_RX_BD_SIZE/BNX2X_RCQ_CQE_SIZE/BNX2X_TX_BD_SIZE/
+  BNX2X_FP_SB_SIZE/BNX2X_DB_STRIDE/BNX2X_HC_INDEX_* replace the
+  scattered 8/64/16/0x40/*8/1/5 literals; TX doorbell write
+  deduplicated into bnx2x_tx_doorbell() (transmit + stall re-kick).
+  Both build variants pass. NO functional change intended — a
+  quick soak/imgfetch re-check on next hardware session is enough.
+
 - **2026-07-21 (aw)**: Wrote
   `src/drivers/net/bnx2x/LINUX_COMPARISON.md` (branch-only, RFC prep):
   full accounting of what the iPXE driver omits/changes vs Linux v6.6

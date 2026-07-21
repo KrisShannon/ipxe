@@ -22,9 +22,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * All structure layouts were computed against the Linux v6.6
- * bnx2x_hsi.h with a host offsetof tool (see CLAUDE.md).  Storm RAM
- * offsets come from the IRO table embedded in the firmware image.
+ * All structure layouts were computed as offsetof()/sizeof() by a
+ * host program compiled against the Linux v6.6 bnx2x_hsi.h.  Storm
+ * RAM offsets come from the IRO table embedded in the firmware image.
  */
 
 FILE_LICENCE ( GPL2_ONLY );
@@ -271,8 +271,7 @@ void bnx2x_sp_post ( struct bnx2x_nic *bnx2x, unsigned int command,
 	 * (le16 + le16 reserved), data.update_data_addr as a regpair
 	 * (lo dword first, then hi)
 	 */
-	hw_cid = ( ( bnx2x->port << 23 ) | ( ( bnx2x->pfid >> 1 ) << 17 ) |
-		   cid );
+	hw_cid = BNX2X_HW_CID ( bnx2x, cid );
 	type = ( ( conn_type & 0xff ) | ( bnx2x->pfid << 8 ) );
 	spe[0] = cpu_to_le32 ( ( command << 24 ) | hw_cid );
 	spe[1] = cpu_to_le32 ( type );
@@ -464,7 +463,7 @@ void bnx2x_stats_query_dump ( struct bnx2x_nic *bnx2x ) {
 	uint32_t *port;
 	uint32_t *queue;
 	physaddr_t phys;
-	unsigned int cl_id = bnx2x->igu_base_sb;	/* = client id */
+	unsigned int cl_id = BNX2X_CL_ID ( bnx2x );
 	unsigned int i;
 
 	buf = malloc_phys ( BNX2X_PAGE_SIZE, BNX2X_PAGE_SIZE );

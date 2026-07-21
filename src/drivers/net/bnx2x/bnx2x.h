@@ -9,9 +9,9 @@
  * this file are derived from the Linux bnx2x driver (GPLv2),
  * drivers/net/ethernet/broadcom/bnx2x/ as of Linux v6.6:
  * bnx2x_reg.h, bnx2x_hsi.h, bnx2x.h.  Shared-memory offsets were
- * computed as offsetof(struct shmem_region, ...) against the v6.6
- * bnx2x_hsi.h structure definitions; see CLAUDE.md at the repository
- * root for the procedure to re-verify them.
+ * computed as offsetof(struct shmem_region, ...) by a host program
+ * compiled against the v6.6 bnx2x_hsi.h structure definitions, and
+ * can be re-verified the same way.
  *
  */
 
@@ -47,8 +47,11 @@ FILE_LICENCE ( GPL2_ONLY );
 /** BAR0 register window size (8MB on E2/E3) */
 #define BNX2X_BAR0_SIZE			0x800000
 
-/** Doorbell (BAR2) mapping size (we only use cid 0 at offset 0) */
+/** Doorbell (BAR2) mapping size (only cid 0 at offset 0 is used) */
 #define BNX2X_DOORBELL_SIZE		0x1000
+
+/** Doorbell stride: one doorbell cell per connection id */
+#define BNX2X_DB_STRIDE			8
 
 /*
  * GRC (BAR0) register addresses
@@ -216,6 +219,18 @@ enum bnx2x_mf_mode {
 /** Timeout waiting for MCP shmem validity signature (in 10ms ticks) */
 #define BNX2X_SHMEM_TIMEOUT_TICKS	500
 
+/** Number of RX buffers kept posted.  The storm firmware refuses to
+ * place packets (USTORM no_buff_discard) when only a handful of
+ * buffers are available - Linux fills the whole ~500-buffer ring -
+ * and a shallow ring cannot absorb a TCP window burst at 10G given
+ * iPXE's polling latency.  Must not exceed the usable completion
+ * queue entries (see bnx2x_eth.c ring geometry).
+ */
+#define BNX2X_RX_FILL		120
+
+/** Maximum number of in-flight transmissions */
+#define BNX2X_TX_MAX_PENDING	16
+
 /** Timeout waiting for an MCP mailbox response (in 10ms ticks) */
 #define BNX2X_MCP_TIMEOUT_TICKS		500
 
@@ -293,14 +308,14 @@ struct bnx2x_nic {
 	void *fp_sb;
 	/** RX buffer descriptor ring (one page) */
 	void *rx_bd_ring;
-	/** RX completion queue (one page) */
+	/** RX completion queue (two pages) */
 	void *rx_cq_ring;
 	/** TX buffer descriptor ring (one page) */
 	void *tx_ring;
 	/** RX I/O buffers (FIFO order) */
-	struct io_buffer *rx_iobuf[120];
+	struct io_buffer *rx_iobuf[BNX2X_RX_FILL];
 	/** TX I/O buffers (FIFO order) */
-	struct io_buffer *tx_iobuf[16];
+	struct io_buffer *tx_iobuf[BNX2X_TX_MAX_PENDING];
 	/** RX BD producer (firmware-style skipping counter) */
 	unsigned int rx_bd_prod;
 	/** RX CQ producer */
@@ -329,8 +344,19 @@ struct bnx2x_nic {
 	int tx_stalled;
 };
 
-/** Maximum number of in-flight transmissions */
-#define BNX2X_TX_MAX_PENDING 16
+/** Client id.  On E2+ the client id must equal the IGU status block
+ * id (Linux bnx2x_fp_cl_id) so that it is unique chip-wide: the
+ * client id is also the queue-zone id indexing the USTORM RX
+ * producers in PER-PATH storm RAM, and a per-path numbering would
+ * collide between the two ports of a path when both are open (each
+ * port clobbering the other's producers, wedging RX teardown).
+ */
+#define BNX2X_CL_ID( bnx2x )	( (bnx2x)->igu_base_sb )
+
+/** Compose the hardware connection id for a ramrod (Linux HW_CID) */
+#define BNX2X_HW_CID( bnx2x, cid )				\
+	( ( (bnx2x)->port << 23 ) |				\
+	  ( ( (bnx2x)->pfid >> 1 ) /* vn */ << 17 ) | (cid) )
 
 /**
  * Read GRC register

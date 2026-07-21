@@ -7,7 +7,8 @@
  *
  * Constants from the Linux bnx2x driver (GPLv2) bnx2x_hsi.h /
  * bnx2x_fw_defs.h / bnx2x.h as of Linux v6.6.  Structure layouts
- * computed via host offsetof tool (see CLAUDE.md).
+ * were computed as offsetof()/sizeof() by a host program compiled
+ * against those headers.
  *
  */
 

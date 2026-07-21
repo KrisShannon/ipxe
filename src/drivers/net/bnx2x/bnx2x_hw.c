@@ -20,7 +20,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  *
- * Deliberate simplifications relative to Linux (see CLAUDE.md):
+ * Deliberate simplifications relative to Linux:
  * E2/E3-only paths (no E1/E1H), single-function mode assumed for MF
  * specifics that do not apply (AFEX), no CNIC/SR-IOV, no DMAE (all
  * writes are individual register writes), FLR cleanup and parity
@@ -1459,7 +1459,7 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
  * The NIG is never reset, so any packets still in flight between the
  * MAC and the storms when the connection is halted leave the
  * NIG/BRB handshake state desynchronised, wedging the ingress
- * pipeline for subsequent sessions (observed as a BRB that never
+ * pipeline for subsequent opens (observed as a BRB that never
  * drains and an unresponsive USTORM after repeated open/close
  * cycles).  Mirror the Linux bnx2x_prev_unload choreography at our
  * own close, while the storms are still able to drain the buffer:
@@ -1573,7 +1573,8 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 	/* Read back the NIG ingress-path configuration (port 0
 	 * addresses) to catch writes that did not stick, or state that
 	 * the management firmware has re-programmed behind our back
-	 * (the rNDC BMC shares the port via the MCP ingress path).
+	 * (on boards where a BMC shares the port via the MCP ingress
+	 * path).
 	 */
 	DBGC ( bnx2x, "BNX2X %p RXDIAG gates drv_mask %08x mf %08x not_mcp "
 	       "%08x mf_mode %08x cls %08x func_en %08x hdrs %08x mac_in %08x "
@@ -1680,7 +1681,7 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 	for ( i = 0 ; i < 2 ; i++ ) {
 		prods[i] = bnx2x_readl ( bnx2x,
 			( BAR_USTRORM_INTMEM + bnx2x_iro ( 217 )->base +
-			  ( bnx2x->igu_base_sb * bnx2x_iro ( 217 )->m1 ) +
+			  ( BNX2X_CL_ID ( bnx2x ) * bnx2x_iro ( 217 )->m1 ) +
 			  ( i * 4 ) ) );
 	}
 	DBGC ( bnx2x, "BNX2X %p RXDIAG ustorm prods %08x %08x fp_sb", bnx2x,
