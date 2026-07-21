@@ -591,6 +591,13 @@ void bnx2x_eth_free ( struct bnx2x_nic *bnx2x ) {
 void bnx2x_eth_close ( struct net_device *netdev ) {
 	struct bnx2x_nic *bnx2x = netdev->priv;
 
+	/* Stop the RX path and let the storms drain any in-flight
+	 * packets BEFORE halting the connection: packets cut mid-way
+	 * leave the never-reset NIG desynchronised from the BRB,
+	 * wedging RX for later sessions
+	 */
+	bnx2x_xmac_quiesce ( bnx2x );
+
 	/* Query the storm firmware statistics while the connection is
 	 * still up, then dump the RX-path diagnostics
 	 */

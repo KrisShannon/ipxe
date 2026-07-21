@@ -30,6 +30,34 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ak)**: **Repeated open/close wedges RX without the
+  NIG reset — root-caused to our own close path; RX quiesce added
+  (awaiting HW re-test).** User sequence: DHCP soak PASSED → smoke
+  +cycle tests (16 open/closes) → DHCP soak FAILED at cycle 0 with:
+  CLIENT_SETUP completion garbled ("ramrod CQE flags 00"), partial
+  RX then jam (tstorm counted 13, then BRB stuck at 11 blocks,
+  INGRESS_EOP_PORT0 fifo non-empty), STATS query answered by
+  t/xstorm but u/cstorm counters stayed 0xffff (USTORM wedged),
+  every subsequent CQE/EQ completion timed out. Diagnosis: since
+  (m) our ifclose left the MAC enabled and LLH gates open — fine
+  while every open re-reset the NIG, but WITHOUT the NIG reset the
+  frames still flowing after HALT/TERMINATE leave the NIG↔BRB
+  handshake desynced (BRB gets table-soft-reset under a live NIG on
+  the next open) ⇒ exactly the prev_unload hazard Linux guards
+  against. FIX: bnx2x_xmac_quiesce() (bnx2x_hw.c), called FIRST in
+  eth_close: closes LLH gates (set_rx_filter(0)), XON toggle +
+  XMAC CTRL=0 + 20ms (prev_unload_close_mac equivalent), polls
+  BRB1_REG_NUM_OF_FULL_BLOCKS→0 (≤1s) while the storms are still
+  alive to drain. Note net4/57810 RMP dump now shows all-zero MFW
+  rules even without our NIG reset (only 0x1023c/40 = 0x04000000)
+  — the DHCP-steal concern may be rNDC-only; first soak PASSING
+  without the NIG reset confirms DHCP works on net4. HW re-test:
+  same sequence (soak → smoke → cycle → soak, cold boot start);
+  everything should now pass. If the wedge persists, options:
+  restore RST_NIG per-open, or investigate residual NIG state
+  (INGRESS_EOP fifo) at open. User's src/debug.ipxe (committed to
+  branch) provides a menu for all these tests.
+
 - **2026-07-20 (aj)**: **Cleanup round 1 + NIG-reset removal
   experiment (awaiting HW test).** Changes: (1) reset_common mask
   reverted to Linux 0xd3ffff7f — the NIG is NO LONGER reset, so the

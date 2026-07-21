@@ -1489,6 +1489,59 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 }
 
 /**
+ * Quiesce the RX path before datapath teardown
+ *
+ * @v bnx2x		bnx2x device
+ *
+ * The NIG is never reset, so any packets still in flight between the
+ * MAC and the storms when the connection is halted leave the
+ * NIG/BRB handshake state desynchronised, wedging the ingress
+ * pipeline for subsequent sessions (observed as a BRB that never
+ * drains and an unresponsive USTORM after repeated open/close
+ * cycles).  Mirror the Linux bnx2x_prev_unload choreography at our
+ * own close, while the storms are still able to drain the buffer:
+ * close the LLH ingress gates, stop the MAC RX (with the XON
+ * indication toggle), and wait for the BRB to empty.
+ */
+void bnx2x_xmac_quiesce ( struct bnx2x_nic *bnx2x ) {
+	uint32_t xmac_base = ( bnx2x->port ? GRCBASE_XMAC1 : GRCBASE_XMAC0 );
+	uint32_t val;
+	unsigned int i;
+
+	/* Close the NIG LLH ingress gates (bnx2x_set_rx_filter(0)) */
+	bnx2x_writel ( bnx2x, 0,
+		       ( NIG_REG_LLH0_BRB1_DRV_MASK + ( bnx2x->port * 4 ) ) );
+	bnx2x_writel ( bnx2x, 0,
+		       ( NIG_REG_LLH0_BRB1_DRV_MASK_MF +
+			 ( bnx2x->port * 4 ) ) );
+	bnx2x_writel ( bnx2x, 0, ( bnx2x->port ? NIG_REG_LLH1_BRB1_NOT_MCP :
+				   NIG_REG_LLH0_BRB1_NOT_MCP ) );
+
+	/* Send the XON indication and stop the MAC (Linux
+	 * bnx2x_prev_unload_close_mac, done at our own unload)
+	 */
+	val = bnx2x_readl ( bnx2x, ( xmac_base + XMAC_REG_PFC_CTRL_HI ) );
+	bnx2x_writel ( bnx2x, ( val & ~0x2 ),
+		       ( xmac_base + XMAC_REG_PFC_CTRL_HI ) );
+	bnx2x_writel ( bnx2x, ( val | 0x2 ),
+		       ( xmac_base + XMAC_REG_PFC_CTRL_HI ) );
+	bnx2x_writel ( bnx2x, 0, ( xmac_base + XMAC_REG_CTRL ) );
+	mdelay ( 20 );
+
+	/* Wait for the BRB to drain */
+	for ( i = 0 ; i < 1000 ; i++ ) {
+		if ( bnx2x_readl ( bnx2x, BRB1_REG_NUM_OF_FULL_BLOCKS ) == 0 )
+			break;
+		mdelay ( 1 );
+	}
+	if ( i == 1000 ) {
+		DBGC ( bnx2x, "BNX2X %p BRB failed to drain (%d blocks)\n",
+		       bnx2x,
+		       bnx2x_readl ( bnx2x, BRB1_REG_NUM_OF_FULL_BLOCKS ) );
+	}
+}
+
+/**
  * Dump RX-path diagnostic counters
  *
  * @v bnx2x		bnx2x device
