@@ -633,11 +633,14 @@ void bnx2x_eth_close ( struct net_device *netdev ) {
 	 */
 	bnx2x_xmac_quiesce ( bnx2x );
 
-	/* Query the storm firmware statistics while the connection is
-	 * still up, then dump the RX-path diagnostics
+	/* In extra-verbose debug builds, query the storm firmware
+	 * statistics while the connection is still up and dump the
+	 * RX-path diagnostics (both compile out otherwise)
 	 */
-	bnx2x_stats_query_dump ( bnx2x );
-	bnx2x_rx_diag ( bnx2x );
+	if ( DBG_EXTRA ) {
+		bnx2x_stats_query_dump ( bnx2x );
+		bnx2x_rx_diag ( bnx2x );
+	}
 
 	/* Halt the client (completion on the RX CQ) */
 	bnx2x_sp_post ( bnx2x, RAMROD_CMD_ID_ETH_HALT, BNX2X_ETH_CID,

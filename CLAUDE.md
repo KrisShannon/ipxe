@@ -30,6 +30,26 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ap)**: **Bisect round 2 passed (single benign
+  'discarding CQE' again; DHCP fine after all cycles) ⇒ init-step
+  bisection COMPLETE**: final init sequence = Linux xmac_enable +
+  CTRL=0+20ms cycle + XON toggle (both prev_unload-canonical,
+  kept) + RX quiesce at close. **TX len-18 mystery SOLVED by code
+  inspection: they are EAPOL-Start frames from iPXE's 802.1X
+  supplicant (net/eapol.c: 3 × 18-byte frames per open, 2s apart —
+  eth 14 + eapol 4). Harmless/expected; not driver traffic.**
+  THIS COMMIT: stats_query_dump + rx_diag calls now gated behind
+  `if ( DBG_EXTRA )` — compiled out of normal builds (linker GCs
+  the functions), still available with the usual :3 DEBUG string.
+  DECISION: BNX2X_RX_FILL stays 48 (~105KB heap) — robustness over
+  memory for boot firmware; threshold hunt not worth the hardware
+  time. REMAINING: warm-reboot-to-OS-driver check (user test, last
+  phase-2 leftover); upstream trim: bnx2x_fw.h 1.8MB → build-time
+  fetch like other drivers, licence/FILE_SECBOOT review, decide
+  fate of debug/bnx2xdump.c + src/debug.ipxe (branch-only), then
+  ipxe-devel RFC; optionally raise the EFI-watchdog starvation
+  topic upstream.
+
 - **2026-07-20 (ao)**: **FULL VALIDATION GAUNTLET PASSED**: 5×DHCP
   soak net4-4001 + 5×DHCP soak net0-602 (over LACP!) + 20×open-all/
   close-all + both soaks again — grep for 'unexpected CQE'/'timed
