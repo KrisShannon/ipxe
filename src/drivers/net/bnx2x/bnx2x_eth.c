@@ -674,6 +674,56 @@ void bnx2x_eth_close ( struct net_device *netdev ) {
 }
 
 /**
+ * Diagnose a full TX ring
+ *
+ * @v bnx2x		bnx2x device
+ *
+ * A full ring is normal in bursts; a ring that STAYS full means TX
+ * completions have stopped being delivered or harvested and the
+ * device can never transmit again (observed as total TX silence
+ * partway through a sustained transfer).  Re-ring the doorbell as
+ * lost-doorbell insurance (idempotent: it carries the absolute
+ * producer value), and if the condition has persisted for over a
+ * second dump the state needed to apportion blame: status block
+ * TX index != our consumer means our harvest is broken; equal, with
+ * the ring still full, means the firmware stopped completing.
+ */
+static void bnx2x_tx_stall ( struct bnx2x_nic *bnx2x ) {
+	uint16_t *sb = bnx2x->fp_sb;
+	uint32_t db;
+
+	/* Re-ring the doorbell */
+	wmb();
+	db = ( 0x02 | ( ( bnx2x->tx_db_prod & 0xffff ) << 16 ) );
+	writel ( db, ( bnx2x->doorbells + ( BNX2X_ETH_CID * 8 ) ) );
+
+	if ( ! bnx2x->tx_stall_start ) {
+		bnx2x->tx_stall_start = currticks();
+		return;
+	}
+	if ( bnx2x->tx_stalled ||
+	     ( ( currticks() - bnx2x->tx_stall_start ) < TICKS_PER_SEC ) )
+		return;
+	bnx2x->tx_stalled = 1;
+
+	DBGC ( bnx2x, "BNX2X %p TX STALL: pkt prod %04x cons %04x db %04x\n",
+	       bnx2x, ( bnx2x->tx_pkt_prod & 0xffff ),
+	       ( bnx2x->tx_pkt_cons & 0xffff ),
+	       ( bnx2x->tx_db_prod & 0xffff ) );
+	DBGC ( bnx2x, "BNX2X %p TX STALL: sb %04x %04x %04x %04x %04x %04x "
+	       "%04x %04x run %04x\n", bnx2x, le16_to_cpu ( sb[0] ),
+	       le16_to_cpu ( sb[1] ), le16_to_cpu ( sb[2] ),
+	       le16_to_cpu ( sb[3] ), le16_to_cpu ( sb[4] ),
+	       le16_to_cpu ( sb[5] ), le16_to_cpu ( sb[6] ),
+	       le16_to_cpu ( sb[7] ), le16_to_cpu ( sb[8] ) );
+	DBGC ( bnx2x, "BNX2X %p TX STALL: rx cq cons %04x bd prod %04x "
+	       "cq prod %04x fill %d\n", bnx2x,
+	       ( bnx2x->rx_cq_cons & 0xffff ), ( bnx2x->rx_bd_prod & 0xffff ),
+	       ( bnx2x->rx_cq_prod & 0xffff ),
+	       ( bnx2x->rx_ring_head - bnx2x->rx_ring_tail ) );
+}
+
+/**
  * Transmit a packet
  *
  * @v netdev		Network device
@@ -690,8 +740,20 @@ int bnx2x_eth_transmit ( struct net_device *netdev,
 
 	/* Limit outstanding transmissions */
 	if ( ( bnx2x->tx_pkt_prod - bnx2x->tx_pkt_cons ) >=
-	     BNX2X_TX_MAX_PENDING )
+	     BNX2X_TX_MAX_PENDING ) {
+		bnx2x_tx_stall ( bnx2x );
 		return -ENOBUFS;
+	}
+	if ( bnx2x->tx_stall_start ) {
+		if ( bnx2x->tx_stalled ) {
+			DBGC ( bnx2x, "BNX2X %p TX STALL recovered after "
+			       "%ld ticks (cons %04x)\n", bnx2x,
+			       ( currticks() - bnx2x->tx_stall_start ),
+			       ( bnx2x->tx_pkt_cons & 0xffff ) );
+		}
+		bnx2x->tx_stall_start = 0;
+		bnx2x->tx_stalled = 0;
+	}
 
 	/* Start BD */
 	slot = ( bnx2x->tx_bd_prod & ( BNX2X_TX_BD_CNT - 1 ) );

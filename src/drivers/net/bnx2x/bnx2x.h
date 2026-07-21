@@ -319,6 +319,14 @@ struct bnx2x_nic {
 	unsigned int tx_pkt_cons;
 	/** TX doorbell BD counter */
 	unsigned int tx_db_prod;
+	/** TX stall diagnosis: tick at which the ring-full condition
+	 * was first seen (0 = not currently full)
+	 */
+	unsigned long tx_stall_start;
+	/** TX stall diagnosis: state dump already emitted for the
+	 * current stall episode
+	 */
+	int tx_stalled;
 };
 
 /** Maximum number of in-flight transmissions */

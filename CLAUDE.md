@@ -30,6 +30,33 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-21 (ar)**: **NEW BUG from re-test of (aq): TX dies
+  PERMANENTLY mid-imgfetch (~40MB): after a dup-ACK burst iPXE goes
+  totally silent — server exhausts its 2MB window unanswered, iPXE
+  eventually reports connection timeout but not even the FIN/RST
+  goes out.** Total TX silence = every transmit rejected = the
+  BNX2X_TX_MAX_PENDING(16) gate returning ENOBUFS forever = TX
+  completions stopped being harvested. THIS COMMIT instruments the
+  stall path (no fix yet — cause unknown): (1) new
+  bnx2x_tx_stall(), called on every ENOBUFS: re-rings the TX
+  doorbell with the current tx_db_prod (idempotent absolute-value
+  write — cheap lost-doorbell insurance; if the stall now
+  self-heals, lost doorbell was the cause); (2) if the ring-full
+  condition persists >1s, a ONE-SHOT DBGC dump (level 1 — visible
+  with plain `DEBUG=bnx2x_eth`, deliberately NOT :3 which floods
+  serial per-packet and perturbs timing): "TX STALL" lines with pkt
+  prod/cons/db_prod, all 8 fp_sb index words + running index, and
+  RX ring state; (3) "TX STALL recovered" one-shot when the gate
+  passes again. READING THE DUMP: sb[5] != pkt cons ⇒ completions
+  arrived but our harvest is broken (poll bug); sb[5] == pkt cons
+  with prod-cons==16 ⇒ firmware stopped completing (doorbell lost
+  or TX storm wedge — and if the re-kick heals it: doorbell);
+  sb[] all frozen vs rx lines advancing ⇒ SB DMA died. HW test:
+  rebuild with `DEBUG=bnx2x_eth` (level 1 ONLY), rerun the >100MB
+  imgfetch on the plain port; paste any "TX STALL" lines. If no
+  stall lines but transfer still dies, TX attempts stopped
+  reaching the driver (netdev/TCP layer) — different hunt.
+
 - **2026-07-20 (aq)**: **Sustained-RX bug found by imgfetch test:
   ~27MiB at full speed, then escalating TCP DUP-ACK storms, then
   permanent stall ⇒ connection timeout.** Two causes, both fixed
