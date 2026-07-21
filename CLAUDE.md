@@ -30,6 +30,27 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-21 (av)**: **GOAL PATH + OS HANDOFF BOTH VALIDATED.**
+  Clarification from the user: the (au) 629MB imgfetch runs were
+  already over net0-602-over-LACP (nothing was reachable via
+  net4/net5) — so the sustained-load check on the GOAL PATH is
+  done. Then: vmlinuz+initrd fetched and BOOTED from iPXE over the
+  same path; the initramfs (which currently expects a local ISO)
+  dropped to its debug shell, where the user manually built bond0 →
+  vlan602 → static IP on the KERNEL's own bnx2x driver and fetched
+  the same ISO in 5.6s. That is the long-outstanding phase-2
+  "OS driver works after our load/unload" check, in its strongest
+  form (same-boot handoff, not even a warm reboot): iPXE hooks
+  ExitBootServices, so our full close path (quiesce → HALT/
+  TERMINATE/CFC_DEL → MCP unload) ran when the kernel took over,
+  and Linux bnx2x then probed/bonded/tagged the port cleanly.
+  REMAINING VALIDATION: just a DHCP soak to confirm no regression
+  from the (as)/(at) datapath fixes. Then the cleanup/upstream
+  list: bnx2x_fw.h 1.8MB → build-time fetch like other drivers,
+  licence/FILE_SECBOOT review, decide fate of debug/bnx2xdump.c +
+  src/debug.ipxe (branch-only), ipxe-devel RFC; optionally raise
+  the EFI-watchdog starvation topic upstream.
+
 - **2026-07-21 (au)**: **SUSTAINED-TRANSFER BUGS FIXED AND VALIDATED:
   imgfetch of the production 629MB ISO (659,554,304 bytes — the very
   image that was being served via BMC virtual media because iPXE
