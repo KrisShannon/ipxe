@@ -779,10 +779,20 @@ int bnx2x_eth_transmit ( struct net_device *netdev,
 	bd[3] = 0;
 	bnx2x->tx_bd_prod = bnx2x_next_tx_idx ( bnx2x->tx_bd_prod );
 
-	/* Record buffer and ring the doorbell */
+	/* Record buffer and ring the doorbell.  The doorbell BD count
+	 * must include the ring's next-page element whenever this
+	 * packet's BDs contained or ended with it (Linux
+	 * bnx2x_start_xmit: "counting the next BD if the packet
+	 * contains or ends with it"): the firmware's BD cursor counts
+	 * every ring slot, so omitting it lets the doorbell producer
+	 * fall one BD further behind the firmware per traversed ring
+	 * page until TX processing stops entirely.
+	 */
 	bnx2x->tx_iobuf[bnx2x->tx_pkt_prod % BNX2X_TX_MAX_PENDING] = iobuf;
 	bnx2x->tx_pkt_prod++;
-	bnx2x->tx_db_prod += 2;
+	bnx2x->tx_db_prod +=
+		( ( ( bnx2x->tx_bd_prod & ( BNX2X_TX_BD_CNT - 1 ) ) < 2 ) ?
+		  3 : 2 );
 	wmb();
 	/* doorbell_set_prod: header (DB_TYPE) | prod << 16 */
 	db = ( 0x02 | ( ( bnx2x->tx_db_prod & 0xffff ) << 16 ) );

@@ -30,6 +30,31 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-21 (as)**: **TX-death ROOT CAUSE FOUND BY INSPECTION
+  (same session as (ar), before any HW run): the TX doorbell
+  producer must count the ring's NEXT-PAGE element.** Linux
+  bnx2x_start_xmit, right before the doorbell: "now send a tx
+  doorbell, counting the next BD if the packet contains or ends
+  with it" — `if (TX_BD_POFF(bd_prod) < nbd) nbd++`. We always did
+  tx_db_prod += 2, so each traversal of the 256-slot TX BD page
+  (every ~127 packets) left our doorbell value one BD further
+  behind the firmware's slot-counting cursor; after enough drift
+  the firmware stops processing TX doorbells entirely ⇒ the
+  permanent TX silence at ~40MB (needs thousands of TX ACKs to
+  accumulate — soaks/open-close/LACP never came close, which is
+  why every earlier test passed). FIX: tx_db_prod += 3 when
+  (tx_bd_prod & 255) < 2 after advancing past both BDs (poff 0/1 ⇔
+  the two BDs contained or ended at slot 255), else += 2 — exact
+  port of the Linux condition (nbd always 2 for us). The (ar)
+  instrumentation stays in as a tripwire: if the theory is right
+  the >100MB imgfetch now completes with ZERO "TX STALL" lines;
+  any "TX STALL" line appearing means a second cause exists —
+  paste it. HW test: imgfetch >100MB on plain port AND on
+  net0-602-over-LACP (usual `ifopen net0 ; sleep 20` first), then
+  confirm the DHCP soak still passes. Normal build is fine for the
+  transfer test; `DEBUG=bnx2x_eth` (level 1, NOT :3) if you want
+  the tripwire visible.
+
 - **2026-07-21 (ar)**: **NEW BUG from re-test of (aq): TX dies
   PERMANENTLY mid-imgfetch (~40MB): after a dup-ACK burst iPXE goes
   totally silent — server exhausts its 2MB window unanswered, iPXE
