@@ -1420,43 +1420,6 @@ void bnx2x_xmac_enable ( struct bnx2x_nic *bnx2x, const uint8_t *mac ) {
 	bnx2x_writel ( bnx2x, ( XMAC_CTRL_REG_TX_EN | XMAC_CTRL_REG_RX_EN ),
 		       ( xmac_base + XMAC_REG_CTRL ) );
 
-	/* 4-port mode: the XMAC_MP core's system side runs in Dual
-	 * Port Mode (CORE_PORT_MODE=1), i.e. one time-multiplexed
-	 * interface shared by both ports of the path.  Under the
-	 * vendor UEFI drivers ALL ports were enabled and RX worked;
-	 * iPXE disconnects every vendor driver instance (disabling
-	 * the sibling MAC) and we only bring up our own port - the
-	 * 57810 in Single Port Mode passes frames to the parser while
-	 * the 57840 in dual mode never does.  Experimentally enable
-	 * the sibling XMAC minimally so the shared system-side mux
-	 * has both ports running.
-	 */
-	if ( bnx2x->port4mode ) {
-		uint32_t sib = ( bnx2x->port ? GRCBASE_XMAC0 :
-				 GRCBASE_XMAC1 );
-		DBGC ( bnx2x, "BNX2X %p sibling XMAC ctrl was %08x\n", bnx2x,
-		       bnx2x_readl ( bnx2x, ( sib + XMAC_REG_CTRL ) ) );
-		bnx2x_writel ( bnx2x, 0x2710,
-			       ( sib + XMAC_REG_RX_MAX_SIZE ) );
-		bnx2x_writel ( bnx2x, 0xc800, ( sib + XMAC_REG_TX_CTRL ) );
-		bnx2x_writel ( bnx2x, 0x18000,
-			       ( sib + XMAC_REG_PAUSE_CTRL ) );
-		bnx2x_writel ( bnx2x, 0xffff8000,
-			       ( sib + XMAC_REG_PFC_CTRL ) );
-		bnx2x_writel ( bnx2x, 0x2, ( sib + XMAC_REG_PFC_CTRL_HI ) );
-		bnx2x_writel ( bnx2x, ( XMAC_CTRL_REG_TX_EN |
-					XMAC_CTRL_REG_RX_EN ),
-			       ( sib + XMAC_REG_CTRL ) );
-	}
-
-	/* Open the legacy per-MAC ingress interface enable as well
-	 * (never written by the init tables; at silicon default since
-	 * we reset the NIG - candidate second gate in series with
-	 * P0_MAC_IN_EN)
-	 */
-	bnx2x_writel ( bnx2x, 1,
-		       ( 0x100a4 /* NIG_REG_EMAC0_IN_EN */ +
-			 ( bnx2x->port * 4 ) ) );
 
 	/* Open the NIG-to-MAC gates (no pause output) */
 	bnx2x_writel ( bnx2x, 1, ( bnx2x->port ? NIG_REG_P1_MAC_IN_EN :

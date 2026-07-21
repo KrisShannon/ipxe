@@ -30,6 +30,34 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (ao)**: **FULL VALIDATION GAUNTLET PASSED**: 5×DHCP
+  soak net4-4001 + 5×DHCP soak net0-602 (over LACP!) + 20×open-all/
+  close-all + both soaks again — grep for 'unexpected CQE'/'timed
+  out'/'BRB failed to drain'/'discarding CQE' found ONE benign
+  "discarding CQE type 0 while awaiting ramrod" (the skip logic
+  working as designed, once in 120 opens). TWO OPERATIONAL FINDINGS
+  (user-diagnosed): (1) the mystery reboots were the **EFI Boot
+  Watchdog** (NOT the BIOS OS watchdog; cannot be disabled in Dell
+  setup): iPXE re-arms it every 10s via a process on the event loop
+  (src/interface/efi/efi_watchdog.c, watch with
+  DEBUG=efi_watchdog:3), but ifopen/ifclose don't run the event
+  loop, so a tight script loop >5min gets killed by firmware —
+  scripts must `sleep 1` between operations (sleep runs the event
+  loop). Possibly worth an upstream discussion (long non-polling
+  commands starve the watchdog). (2) DHCP over the LACP port needs
+  bundle-sync time before the DHCP backoff starts: use
+  `ifopen net0 ; sleep 20 ; ifconf -c dhcp net0-602`.
+  THIS COMMIT (bisect round 1): removed the two disproven-premise
+  experimental init writes — sibling XMAC enable (sibling was
+  already enabled when measured) and legacy NIG_REG_EMAC0_IN_EN=1
+  (no observed effect when introduced). KEPT (Linux-canonical):
+  CTRL=0+20ms cycle and XON toggle in xmac_enable, both quiesce
+  steps at close. Re-test at whatever depth is convenient (a soak +
+  a few open-alls should do; full gauntlet if paranoid). Remaining
+  cleanup: RXDIAG/STATS scaffolding decision, RX fill threshold
+  bisect, warm-reboot-to-OS check, TX len-18 mystery, upstream trim
+  (bnx2x_fw.h 1.8MB → build-time fetch).
+
 - **2026-07-20 (an)**: **cl_id change regression found+fixed: the
   HALT ramrod carries the CLIENT ID in its SPE data field.** First
   single-port DHCP after the cl_id fix worked, but close failed:
