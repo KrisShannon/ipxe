@@ -279,41 +279,58 @@ static int bnx2x_post_rx_buffer ( struct bnx2x_nic *bnx2x ) {
  *
  * @v bnx2x		bnx2x device
  * @ret rc		Return status code
+ *
+ * Received packets may still be queued ahead of the ramrod
+ * completion (frames that arrived since the last poll, or that were
+ * drained out of the BRB by the pre-teardown quiesce), so consume
+ * and discard any packet CQEs encountered along the way rather than
+ * mistaking them for the completion - a misread here desynchronises
+ * the consumer index and breaks every subsequent completion.
  */
 static int bnx2x_wait_ramrod_cqe ( struct bnx2x_nic *bnx2x ) {
 	uint16_t *rx_cons_sb = ( bnx2x->fp_sb + ( 1 * 2 ) ); /* index 1 */
+	struct io_buffer *iobuf;
 	uint32_t *cqe;
 	unsigned int hw_cons;
 	unsigned int slot;
+	unsigned int type;
 	unsigned int i;
 
 	for ( i = 0 ; i < 5000 ; i++ ) {
 		hw_cons = le16_to_cpu ( *rx_cons_sb );
 		if ( ( hw_cons & BNX2X_RCQ_USABLE ) == BNX2X_RCQ_USABLE )
 			hw_cons++;
-		if ( hw_cons != ( bnx2x->rx_cq_cons & 0xffff ) )
-			break;
+		while ( hw_cons != ( bnx2x->rx_cq_cons & 0xffff ) ) {
+			slot = ( bnx2x->rx_cq_cons & ( BNX2X_RCQ_CNT - 1 ) );
+			cqe = ( bnx2x->rx_cq_ring + ( slot * 64 ) );
+			type = ( cqe[0] & 0x3 );
+			memset ( cqe, 0, 64 );
+			bnx2x->rx_cq_cons =
+				bnx2x_next_rcq_idx ( bnx2x->rx_cq_cons );
+			bnx2x->rx_cq_prod =
+				bnx2x_next_rcq_idx ( bnx2x->rx_cq_prod );
+			if ( type == 1 ) { /* RX_ETH_CQE_TYPE_ETH_RAMROD */
+				DBGC2 ( bnx2x, "BNX2X %p ramrod CQE\n",
+					bnx2x );
+				bnx2x_update_rx_prods ( bnx2x );
+				return 0;
+			}
+			/* Packet CQE: discard the packet and its buffer */
+			DBGC2 ( bnx2x, "BNX2X %p discarding CQE type %d "
+				"while awaiting ramrod\n", bnx2x, type );
+			iobuf = bnx2x->rx_iobuf[bnx2x->rx_ring_tail %
+						BNX2X_RX_FILL];
+			bnx2x->rx_iobuf[bnx2x->rx_ring_tail %
+					BNX2X_RX_FILL] = NULL;
+			bnx2x->rx_ring_tail++;
+			if ( iobuf )
+				free_iob ( iobuf );
+		}
 		mdelay ( 1 );
 	}
-	if ( hw_cons == ( bnx2x->rx_cq_cons & 0xffff ) ) {
-		DBGC ( bnx2x, "BNX2X %p ramrod CQE timeout\n", bnx2x );
-		return -ETIMEDOUT;
-	}
 
-	slot = ( bnx2x->rx_cq_cons & ( BNX2X_RCQ_CNT - 1 ) );
-	cqe = ( bnx2x->rx_cq_ring + ( slot * 64 ) );
-	DBGC2 ( bnx2x, "BNX2X %p ramrod CQE flags %02x\n", bnx2x,
-		( cqe[0] & 0xff ) );
-	if ( ( cqe[0] & 0x3 ) != 1 ) {	/* RX_ETH_CQE_TYPE_ETH_RAMROD */
-		DBGC ( bnx2x, "BNX2X %p unexpected CQE type %02x\n",
-		       bnx2x, ( cqe[0] & 0xff ) );
-	}
-	memset ( cqe, 0, 64 );
-	bnx2x->rx_cq_cons = bnx2x_next_rcq_idx ( bnx2x->rx_cq_cons );
-	bnx2x->rx_cq_prod = bnx2x_next_rcq_idx ( bnx2x->rx_cq_prod );
-	bnx2x_update_rx_prods ( bnx2x );
-
-	return 0;
+	DBGC ( bnx2x, "BNX2X %p ramrod CQE timeout\n", bnx2x );
+	return -ETIMEDOUT;
 }
 
 /**

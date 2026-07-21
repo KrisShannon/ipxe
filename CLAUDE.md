@@ -30,6 +30,25 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (al)**: **RX quiesce validated (soak→smoke→cycle→soak
+  passed); two new findings from all-6-ports-at-once testing.** (1)
+  "unexpected CQE type 00" at HALT/TERMINATE on every port: packet
+  CQEs queued ahead of the ramrod completion (frames arriving since
+  the last poll + frames pushed through by the quiesce BRB-drain)
+  were mistaken for the completion, desyncing rx_cq_cons — on
+  net2/net3 this cascaded into CFC_DEL/FUNC_STOP EQ timeouts
+  (TERMINATE mis-accounted ⇒ fw won't delete the connection). FIX
+  (this commit): bnx2x_wait_ramrod_cqe now consumes+discards packet
+  CQEs (freeing their iobufs, advancing tail) until the real ramrod
+  CQE (type 1) arrives or 5s elapse. (2) SERVER SUDDENLY REBOOTED
+  during testing: cause was the BIOS "OS Watchdog Timer" (iDRAC log
+  showed it) — iPXE never pets it. **Disable the OS Watchdog in
+  BIOS on iPXE test systems** (user has done so). Re-test: the
+  debug.ipxe menu sequence incl. open-all-6/close-all-6, then soak
+  again. Remaining bisect list unchanged (CTRL cycle, XON toggle,
+  sibling enable, EMAC0_IN_EN), plus the rest of (ai)'s cleanup
+  items.
+
 - **2026-07-20 (ak)**: **Repeated open/close wedges RX without the
   NIG reset — root-caused to our own close path; RX quiesce added
   (awaiting HW re-test).** User sequence: DHCP soak PASSED → smoke
