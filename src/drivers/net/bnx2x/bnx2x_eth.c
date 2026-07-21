@@ -576,7 +576,8 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	return 0;
 
  err_halt:
-	bnx2x_sp_post ( bnx2x, RAMROD_CMD_ID_ETH_HALT, BNX2X_ETH_CID, 0,
+	bnx2x_sp_post ( bnx2x, RAMROD_CMD_ID_ETH_HALT, BNX2X_ETH_CID,
+			BNX2X_CL_ID ( bnx2x ) /* halt data = client id */,
 			ETH_CONNECTION_TYPE );
 	bnx2x_wait_ramrod_cqe ( bnx2x );
  err:
@@ -639,7 +640,8 @@ void bnx2x_eth_close ( struct net_device *netdev ) {
 	bnx2x_rx_diag ( bnx2x );
 
 	/* Halt the client (completion on the RX CQ) */
-	bnx2x_sp_post ( bnx2x, RAMROD_CMD_ID_ETH_HALT, BNX2X_ETH_CID, 0,
+	bnx2x_sp_post ( bnx2x, RAMROD_CMD_ID_ETH_HALT, BNX2X_ETH_CID,
+			BNX2X_CL_ID ( bnx2x ) /* halt data = client id */,
 			ETH_CONNECTION_TYPE );
 	bnx2x_wait_ramrod_cqe ( bnx2x );
 

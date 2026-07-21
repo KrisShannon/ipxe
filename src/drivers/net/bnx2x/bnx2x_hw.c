@@ -1711,11 +1711,14 @@ void bnx2x_rx_diag ( struct bnx2x_nic *bnx2x ) {
 	       bnx2x_readl ( bnx2x, 0x10120 ),	/* EGRESS_EMAC0_OUT_EN */
 	       bnx2x_readl ( bnx2x, 0x10044 ) );	/* INGRESS_EMAC0_NO_CRC */
 
-	/* Read back the USTORM RX producers for our queue zone */
+	/* Read back the USTORM RX producers for our queue zone
+	 * (qzone id = client id = IGU status block id)
+	 */
 	for ( i = 0 ; i < 2 ; i++ ) {
 		prods[i] = bnx2x_readl ( bnx2x,
-			( BAR_USTRORM_INTMEM +
-			  bnx2x_iro ( 217 )->base + ( i * 4 ) ) );
+			( BAR_USTRORM_INTMEM + bnx2x_iro ( 217 )->base +
+			  ( bnx2x->igu_base_sb * bnx2x_iro ( 217 )->m1 ) +
+			  ( i * 4 ) ) );
 	}
 	DBGC ( bnx2x, "BNX2X %p RXDIAG ustorm prods %08x %08x fp_sb", bnx2x,
 	       prods[0], prods[1] );

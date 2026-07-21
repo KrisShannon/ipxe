@@ -30,6 +30,19 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (an)**: **cl_id change regression found+fixed: the
+  HALT ramrod carries the CLIENT ID in its SPE data field.** First
+  single-port DHCP after the cl_id fix worked, but close failed:
+  HALT/TERMINATE CQE timeouts then CFC_DEL/FUNC_STOP EQ timeouts.
+  Linux bnx2x_q_send_halt posts HALT with data_lo = cl_id; we
+  always passed 0, which silently matched while cl_id was 0 and
+  broke the moment cl_id became igu_base_sb (=1 for pf0). Both
+  HALT call sites now pass BNX2X_CL_ID as data. Also fixed the
+  RXDIAG ustorm-prods readback to use qzone = igu_base_sb (was
+  reading qzone 0 = all zeros since the cl_id change). Re-test
+  sequence unchanged: cold boot → soak → open-all/close-all →
+  soak.
+
 - **2026-07-20 (am)**: **All-6-ports-open bug ROOT-CAUSED: client id
   collision between the two ports of a path.** Evidence: close
   failures grouped by PATH (net0+net2 = path0: net0 HALT timeout,
