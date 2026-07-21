@@ -30,6 +30,28 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-21 (ay)**: **Licence + FILE_SECBOOT review complete.**
+  FILE_SECBOOT(PERMITTED) REMOVED from all five .c files:
+  compiler.h policy says third-party contributions may not be
+  marked PERMITTED without an approved security review, and the
+  precedent is unambiguous (iPXE-native intel.c/realtek.c are
+  PERMITTED; Linux-derived tg3/bnxt/bnx2 carry no declaration at
+  all — undeclared files make a SECUREBOOT=1 build fail loudly,
+  which is the intended conservative default; normal builds are
+  unaffected). Licence audit (`make bin-x86_64-efi/ipxe.efi
+  .licence`): all hand-written bnx2x files pass with GPL2_ONLY
+  (matching tg3/bnxt for Linux-derived code; each .c carries the
+  Broadcom/QLogic copyright + GPL2-only text); bnx2x_fw.h
+  deliberately has NO FILE_LICENCE — the firmware licence is
+  Broadcom's "redistributable with notice", no iPXE tag fits, and
+  the audit target already fails upstream on the identical
+  bnx2_fw.h precedent (plus tg3.h/bnxt.h/ath9k/mlx — a
+  pre-existing upstream-wide gap, not ours). Firmware header +
+  mkfw.py generator now carry the LICENCE.bnx2x notice verbatim
+  incl. the leading copyright line; mkfw.py got an SPDX
+  GPL-2.0-only tag. Both build variants pass; no functional
+  change.
+
 - **2026-07-21 (ax)**: **Source cleanup round 1 (comments + macro
   consistency), user-requested.** (1) Comments: removed every
   CLAUDE.md reference from driver sources (offsetof-method now

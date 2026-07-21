@@ -21,7 +21,6 @@
  */
 
 FILE_LICENCE ( GPL2_ONLY );
-FILE_SECBOOT ( PERMITTED );
 
 #include <stdint.h>
 #include <string.h>
