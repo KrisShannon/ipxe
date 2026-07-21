@@ -322,20 +322,22 @@ int bnx2x_sp_wait_comp ( struct bnx2x_nic *bnx2x, unsigned int opcode ) {
 	for ( i = 0 ; i < 5000 ; i++ ) {
 		hw_cons = le16_to_cpu ( *eq_cons_sb );
 		if ( ( hw_cons & ( BNX2X_EQ_DESC_CNT - 1 ) ) ==
-		     ( BNX2X_EQ_DESC_CNT - 1 ) )
-			hw_cons++;
-		if ( hw_cons != bnx2x->eq_cons )
+		     ( BNX2X_EQ_DESC_CNT - 1 ) ) {
+			/* Bump wraps at 16 bits, like the index */
+			hw_cons = ( ( hw_cons + 1 ) & 0xffff );
+		}
+		if ( hw_cons != ( bnx2x->eq_cons & 0xffff ) )
 			break;
 		mdelay ( 1 );
 	}
-	if ( hw_cons == bnx2x->eq_cons ) {
+	if ( hw_cons == ( bnx2x->eq_cons & 0xffff ) ) {
 		DBGC ( bnx2x, "BNX2X %p timed out waiting for completion "
 		       "(opcode %d)\n", bnx2x, opcode );
 		return -ETIMEDOUT;
 	}
 
 	/* Consume all pending events */
-	while ( bnx2x->eq_cons != hw_cons ) {
+	while ( ( bnx2x->eq_cons & 0xffff ) != hw_cons ) {
 		elem = ( bnx2x->eq_ring +
 			 ( ( bnx2x->eq_cons & ( BNX2X_EQ_DESC_CNT - 1 ) ) *
 			   BNX2X_EQ_ELEM_SIZE ) );

@@ -308,8 +308,14 @@ static int bnx2x_wait_ramrod_cqe ( struct bnx2x_nic *bnx2x ) {
 	for ( i = 0 ; i < 5000 ; i++ ) {
 		hw_cons = le16_to_cpu ( *rx_cons_sb );
 		if ( ( hw_cons & ( BNX2X_RCQ_PER_PAGE - 1 ) ) ==
-		     ( BNX2X_RCQ_PER_PAGE - 1 ) )
-			hw_cons++;
+		     ( BNX2X_RCQ_PER_PAGE - 1 ) ) {
+			/* The bump must wrap at 16 bits (0xffff ->
+			 * 0x0000, like Linux's u16 hw_comp_cons) or
+			 * the comparison below can never match and
+			 * the loop consumes the ring forever.
+			 */
+			hw_cons = ( ( hw_cons + 1 ) & 0xffff );
+		}
 		while ( hw_cons != ( bnx2x->rx_cq_cons & 0xffff ) ) {
 			slot = ( bnx2x->rx_cq_cons & ( BNX2X_RCQ_CNT - 1 ) );
 			cqe = ( bnx2x->rx_cq_ring + ( slot * 64 ) );
@@ -833,8 +839,16 @@ void bnx2x_eth_poll ( struct net_device *netdev ) {
 	/* Process received packets */
 	hw_cons = le16_to_cpu ( *rx_cons_sb );
 	if ( ( hw_cons & ( BNX2X_RCQ_PER_PAGE - 1 ) ) ==
-	     ( BNX2X_RCQ_PER_PAGE - 1 ) )
-		hw_cons++;
+	     ( BNX2X_RCQ_PER_PAGE - 1 ) ) {
+		/* The bump must wrap at 16 bits (0xffff -> 0x0000,
+		 * like Linux's u16 hw_comp_cons): an unwrapped
+		 * 0x10000 can never equal the masked consumer below
+		 * and the loop would consume the ring forever,
+		 * crashing on recycled buffers (observed as a GPF at
+		 * the ~64k-th RX completion of a sustained transfer).
+		 */
+		hw_cons = ( ( hw_cons + 1 ) & 0xffff );
+	}
 	while ( ( bnx2x->rx_cq_cons & 0xffff ) != hw_cons ) {
 		slot = ( bnx2x->rx_cq_cons & ( BNX2X_RCQ_CNT - 1 ) );
 		cqe = ( bnx2x->rx_cq_ring + ( slot * 64 ) );

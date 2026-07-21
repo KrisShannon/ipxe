@@ -30,6 +30,32 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-21 (at)**: **(as) doorbell fix CONFIRMED ON HW (no dup
+  ACKs, sailed past the old 40MB wall at full speed) — then a NEW
+  crash at ~93MB: instant GPF ⇒ UEFI restart, and 93,264,233 bytes
+  ≈ 64,400 segments is EXACTLY the 16-bit wrap of the RX CQ slot
+  counter (64,409 CQEs @mss 1448 + 1-per-63 page skips + open-time
+  ramrods/ARP/DHCP ≈ 65,535). ROOT CAUSE (inspection): the
+  next-page bump after reading the SB CQ index —
+  `if ((hw_cons & 63) == 63) hw_cons++` — with hw_cons an
+  `unsigned int`: when the fw index reads exactly 0xFFFF (a
+  page-boundary value, so the bump fires) it becomes 0x10000,
+  which `(rx_cq_cons & 0xffff)` can NEVER equal ⇒ the poll loop
+  consumes the CQ ring forever, recycling NULL/stale rx_iobufs
+  into netdev_rx ⇒ GPF within microseconds. Linux is immune only
+  because its hw_comp_cons is a u16 (the ++ wraps to 0).** FIX:
+  bump is now `hw_cons = (hw_cons + 1) & 0xffff` in
+  bnx2x_eth_poll AND bnx2x_wait_ramrod_cqe; same latent pattern
+  fixed in bnx2x_sp_wait_comp (EQ side; unreachable in practice
+  but same class — eq_cons comparisons now masked too). Whether a
+  run dies at the wrap is per-lap roulette (only if a poll READS
+  the SB while the accumulated index == 0xFFFF); >100MB crosses
+  the wrap at least once, so the previous imgfetch tests were all
+  short of it or got lucky. HW test unchanged from (as): >100MB
+  imgfetch plain port + net0-602-over-LACP + a DHCP soak. A
+  transfer >190MB crosses the wrap TWICE — even better. TX-STALL
+  tripwire from (ar) still armed.
+
 - **2026-07-21 (as)**: **TX-death ROOT CAUSE FOUND BY INSPECTION
   (same session as (ar), before any HW run): the TX doorbell
   producer must count the ring's NEXT-PAGE element.** Linux
