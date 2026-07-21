@@ -55,19 +55,21 @@ FILE_SECBOOT ( PERMITTED );
 /** RX buffer allocation size (headroom for placement offset) */
 #define BNX2X_RX_IOB_SIZE	( BNX2X_RX_BUF_SIZE + 128 )
 
-/** Number of RX buffers kept posted */
-/* Number of RX buffers kept posted.  The storm firmware refuses to
+/** Number of RX buffers kept posted.  The storm firmware refuses to
  * place packets (USTORM no_buff_discard) when only a handful of
- * buffers are available - Linux fills the whole 500-buffer ring.
- * 48 keeps us under the single-page CQ ring's 63 usable CQEs.
+ * buffers are available - Linux fills the whole 500-buffer ring -
+ * and a shallow ring cannot absorb a TCP window burst at 10G given
+ * iPXE's polling latency.  120 keeps us under the two-page CQ
+ * ring's 126 usable CQEs.
  */
-#define BNX2X_RX_FILL		48
+#define BNX2X_RX_FILL		120
 
 /** Ring geometry (single page each) */
 #define BNX2X_RX_BD_CNT		512	/* 8-byte BDs; last 2 next-page */
 #define BNX2X_RX_BD_USABLE	( BNX2X_RX_BD_CNT - 2 )
-#define BNX2X_RCQ_CNT		64	/* 64-byte CQEs; last 1 next-page */
-#define BNX2X_RCQ_USABLE	( BNX2X_RCQ_CNT - 1 )
+#define BNX2X_RCQ_PAGES		2	/* 64-byte CQEs */
+#define BNX2X_RCQ_PER_PAGE	64	/* per page; last 1 next-page */
+#define BNX2X_RCQ_CNT		( BNX2X_RCQ_PAGES * BNX2X_RCQ_PER_PAGE )
 #define BNX2X_TX_BD_CNT		256	/* 16-byte BDs; last 1 next-page */
 #define BNX2X_TX_BD_USABLE	( BNX2X_TX_BD_CNT - 1 )
 
@@ -94,8 +96,8 @@ static unsigned int bnx2x_next_rx_idx ( unsigned int idx ) {
  */
 static unsigned int bnx2x_next_rcq_idx ( unsigned int idx ) {
 
-	return ( ( ( idx & ( BNX2X_RCQ_USABLE ) ) ==
-		   ( BNX2X_RCQ_USABLE - 1 ) ) ? ( idx + 2 ) : ( idx + 1 ) );
+	return ( ( ( idx & ( BNX2X_RCQ_PER_PAGE - 1 ) ) ==
+		   ( BNX2X_RCQ_PER_PAGE - 2 ) ) ? ( idx + 2 ) : ( idx + 1 ) );
 }
 
 /**
@@ -305,7 +307,8 @@ static int bnx2x_wait_ramrod_cqe ( struct bnx2x_nic *bnx2x ) {
 
 	for ( i = 0 ; i < 5000 ; i++ ) {
 		hw_cons = le16_to_cpu ( *rx_cons_sb );
-		if ( ( hw_cons & BNX2X_RCQ_USABLE ) == BNX2X_RCQ_USABLE )
+		if ( ( hw_cons & ( BNX2X_RCQ_PER_PAGE - 1 ) ) ==
+		     ( BNX2X_RCQ_PER_PAGE - 1 ) )
 			hw_cons++;
 		while ( hw_cons != ( bnx2x->rx_cq_cons & 0xffff ) ) {
 			slot = ( bnx2x->rx_cq_cons & ( BNX2X_RCQ_CNT - 1 ) );
@@ -503,7 +506,9 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	/* Allocate rings and fastpath status block */
 	bnx2x->fp_sb = malloc_phys ( 0x40, 0x40 );
 	bnx2x->rx_bd_ring = malloc_phys ( BNX2X_PAGE_SIZE, BNX2X_PAGE_SIZE );
-	bnx2x->rx_cq_ring = malloc_phys ( BNX2X_PAGE_SIZE, BNX2X_PAGE_SIZE );
+	bnx2x->rx_cq_ring = malloc_phys ( ( BNX2X_RCQ_PAGES *
+					    BNX2X_PAGE_SIZE ),
+					  BNX2X_PAGE_SIZE );
 	bnx2x->tx_ring = malloc_phys ( BNX2X_PAGE_SIZE, BNX2X_PAGE_SIZE );
 	if ( ! ( bnx2x->fp_sb && bnx2x->rx_bd_ring && bnx2x->rx_cq_ring &&
 		 bnx2x->tx_ring ) ) {
@@ -512,7 +517,8 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	}
 	memset ( bnx2x->fp_sb, 0, 0x40 );
 	memset ( bnx2x->rx_bd_ring, 0, BNX2X_PAGE_SIZE );
-	memset ( bnx2x->rx_cq_ring, 0, BNX2X_PAGE_SIZE );
+	memset ( bnx2x->rx_cq_ring, 0, ( BNX2X_RCQ_PAGES *
+					 BNX2X_PAGE_SIZE ) );
 	memset ( bnx2x->tx_ring, 0, BNX2X_PAGE_SIZE );
 	memset ( bnx2x->rx_iobuf, 0, sizeof ( bnx2x->rx_iobuf ) );
 	memset ( bnx2x->tx_iobuf, 0, sizeof ( bnx2x->tx_iobuf ) );
@@ -533,10 +539,15 @@ int bnx2x_eth_open ( struct net_device *netdev ) {
 	next[1] = cpu_to_le32 ( ( ( uint64_t ) phys ) >> 32 );
 	next[2] = cpu_to_le32 ( phys & 0xffffffffUL );
 	next[3] = cpu_to_le32 ( ( ( uint64_t ) phys ) >> 32 );
-	phys = virt_to_bus ( bnx2x->rx_cq_ring );
-	next = ( bnx2x->rx_cq_ring + ( BNX2X_RCQ_USABLE * 64 ) );
-	next[0] = cpu_to_le32 ( phys & 0xffffffffUL );		/* addr_lo */
-	next[1] = cpu_to_le32 ( ( ( uint64_t ) phys ) >> 32 );
+	for ( i = 0 ; i < BNX2X_RCQ_PAGES ; i++ ) {
+		phys = virt_to_bus ( bnx2x->rx_cq_ring +
+				     ( ( ( i + 1 ) % BNX2X_RCQ_PAGES ) *
+				       BNX2X_PAGE_SIZE ) );
+		next = ( bnx2x->rx_cq_ring + ( i * BNX2X_PAGE_SIZE ) +
+			 ( ( BNX2X_RCQ_PER_PAGE - 1 ) * 64 ) );
+		next[0] = cpu_to_le32 ( phys & 0xffffffffUL );	/* addr_lo */
+		next[1] = cpu_to_le32 ( ( ( uint64_t ) phys ) >> 32 );
+	}
 	phys = virt_to_bus ( bnx2x->tx_ring );
 	next = ( bnx2x->tx_ring + ( BNX2X_TX_BD_USABLE * 16 ) );
 	next[0] = cpu_to_le32 ( phys & 0xffffffffUL );		/* addr_lo */
@@ -604,7 +615,8 @@ void bnx2x_eth_free ( struct bnx2x_nic *bnx2x ) {
 		bnx2x->tx_ring = NULL;
 	}
 	if ( bnx2x->rx_cq_ring ) {
-		free_phys ( bnx2x->rx_cq_ring, BNX2X_PAGE_SIZE );
+		free_phys ( bnx2x->rx_cq_ring,
+			    ( BNX2X_RCQ_PAGES * BNX2X_PAGE_SIZE ) );
 		bnx2x->rx_cq_ring = NULL;
 	}
 	if ( bnx2x->rx_bd_ring ) {
@@ -748,7 +760,8 @@ void bnx2x_eth_poll ( struct net_device *netdev ) {
 
 	/* Process received packets */
 	hw_cons = le16_to_cpu ( *rx_cons_sb );
-	if ( ( hw_cons & BNX2X_RCQ_USABLE ) == BNX2X_RCQ_USABLE )
+	if ( ( hw_cons & ( BNX2X_RCQ_PER_PAGE - 1 ) ) ==
+	     ( BNX2X_RCQ_PER_PAGE - 1 ) )
 		hw_cons++;
 	while ( ( bnx2x->rx_cq_cons & 0xffff ) != hw_cons ) {
 		slot = ( bnx2x->rx_cq_cons & ( BNX2X_RCQ_CNT - 1 ) );
@@ -776,13 +789,21 @@ void bnx2x_eth_poll ( struct net_device *netdev ) {
 		}
 		memset ( cqe, 0, 64 );
 		bnx2x->rx_cq_cons = bnx2x_next_rcq_idx ( bnx2x->rx_cq_cons );
+	}
 
-		/* Refill: posting a new buffer advances both the BD
-		 * producer and the CQ producer (returning the CQE
-		 * slot we just consumed to the firmware)
-		 */
-		if ( bnx2x_post_rx_buffer ( bnx2x ) == 0 )
-			posted = 1;
+	/* Refill the RX ring.  This is retried on every poll rather
+	 * than once per consumed completion, so that ring slots lost
+	 * to transient allocation failures (e.g. heap pressure while
+	 * TCP is buffering out-of-order segments during loss
+	 * recovery) are recovered instead of leaking until the ring
+	 * empties and RX dies permanently.  Posting a buffer
+	 * advances both the BD producer and the CQ producer.
+	 */
+	while ( ( bnx2x->rx_ring_head - bnx2x->rx_ring_tail ) <
+		BNX2X_RX_FILL ) {
+		if ( bnx2x_post_rx_buffer ( bnx2x ) != 0 )
+			break;
+		posted = 1;
 	}
 	if ( posted )
 		bnx2x_update_rx_prods ( bnx2x );

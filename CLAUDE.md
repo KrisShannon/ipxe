@@ -30,6 +30,30 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (aq)**: **Sustained-RX bug found by imgfetch test:
+  ~27MiB at full speed, then escalating TCP DUP-ACK storms, then
+  permanent stall ⇒ connection timeout.** Two causes, both fixed
+  (awaiting HW re-test): (1) FATAL: poll refilled the ring once per
+  consumed CQE only — if alloc_iob failed (heap pressure while TCP
+  buffers out-of-order segments during loss recovery), that ring
+  slot was lost FOREVER; the ring shrank until RX died permanently.
+  Refill is now a top-up loop on every poll (head-tail vs FILL) —
+  self-healing after transient allocation failures. (2) CAPACITY:
+  48 buffers cannot absorb a TCP window burst at 10G given iPXE
+  polling latency ⇒ chronic overflow drops ⇒ the DUP-ACK storms
+  that triggered (1). CQ ring is now 2 pages (126 usable CQEs,
+  next-page pointer chains page0→page1→page0), BNX2X_RX_FILL 48→120
+  (~261KB of the 4MB heap — core/malloc.c HEAP_SIZE is 4MB, so
+  fine). RCQ index arithmetic reworked to per-page masks
+  (BNX2X_RCQ_PER_PAGE 64; skip when (idx&63)==62; hw_cons bump when
+  (hw&63)==63; slot = idx & 127). rx_iobuf[] sized to 120. RX fill
+  threshold decision (ap) superseded by this. HW test: imgfetch of
+  a large (>100MB) image on both a plain port and net0-602-over-
+  LACP; watch for DUP-ACK storms (some early-window drops are
+  normal, sustained storms are not) and verify completion + soak
+  still passes. If throughput still poor, next lever is a 2-page BD
+  ring + FILL ~250.
+
 - **2026-07-20 (ap)**: **Bisect round 2 passed (single benign
   'discarding CQE' again; DHCP fine after all cycles) ⇒ init-step
   bisection COMPLETE**: final init sequence = Linux xmac_enable +
