@@ -30,6 +30,23 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-21 (au)**: **SUSTAINED-TRANSFER BUGS FIXED AND VALIDATED:
+  imgfetch of the production 629MB ISO (659,554,304 bytes — the very
+  image that was being served via BMC virtual media because iPXE
+  wasn't usable) completed in 5.7s (~110MB/s) with md5sum verified
+  clean.** That transfer crossed the 16-bit RX-CQ wrap ~7 times and
+  traversed the TX BD page ~1,800 times, so the (as) doorbell
+  counting and (at) consumer-bump wrap fixes are both confirmed on
+  hardware. Datapath robustness work DONE pending two remaining
+  transfer checks: (1) same imgfetch over net0-602-over-LACP
+  (`ifopen net0 ; sleep 20` first), (2) a DHCP soak to confirm no
+  regression. Then back to the (ap) cleanup list: warm-reboot-to-
+  OS-driver check (user test, last phase-2 leftover); upstream
+  trim: bnx2x_fw.h 1.8MB → build-time fetch like other drivers,
+  licence/FILE_SECBOOT review, decide fate of debug/bnx2xdump.c +
+  src/debug.ipxe (branch-only), then ipxe-devel RFC; optionally
+  raise the EFI-watchdog starvation topic upstream.
+
 - **2026-07-21 (at)**: **(as) doorbell fix CONFIRMED ON HW (no dup
   ACKs, sailed past the old 40MB wall at full speed) — then a NEW
   crash at ~93MB: instant GPF ⇒ UEFI restart, and 93,264,233 bytes
