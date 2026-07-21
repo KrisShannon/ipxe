@@ -30,6 +30,19 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-21 (aw)**: Wrote
+  `src/drivers/net/bnx2x/LINUX_COMPARISON.md` (branch-only, RFC prep):
+  full accounting of what the iPXE driver omits/changes vs Linux v6.6
+  bnx2x and why, grouped as (A) impossible in iPXE (interrupts/NAPI,
+  RSS, offloads, ethtool, DCB, SR-IOV, PTP, cnic), (B) wrong trade-off
+  for boot firmware (14k-line PHY library vs MFW/LFA link, DMAE, ecore
+  object framework, stats machine, parity recovery, NVRAM), (C)
+  deliberate behavioral deltas (simplified prev_unload + eager RX
+  quiesce, forced-SF only, full teardown per close, explicit 16-bit
+  masking, ring sizes, E3-only), (D) iPXE-only additions. Known
+  functional gaps worth remembering: 1G links dead (no UMAC), 20G
+  mode unconfigured, SD/NPAR outer-tag TX missing, no jumbo.
+
 - **2026-07-21 (av)**: **GOAL PATH + OS HANDOFF BOTH VALIDATED.**
   Clarification from the user: the (au) 629MB imgfetch runs were
   already over net0-602-over-LACP (nothing was reachable via
