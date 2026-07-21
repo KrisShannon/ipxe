@@ -30,6 +30,26 @@ LACP responder active).
 
 ## Current status (update this section every session!)
 
+- **2026-07-20 (am)**: **All-6-ports-open bug ROOT-CAUSED: client id
+  collision between the two ports of a path.** Evidence: close
+  failures grouped by PATH (net0+net2 = path0: net0 HALT timeout,
+  net2 CFC_DEL/FUNC_STOP timeout; net1+net3 = path1: both wedged;
+  57810s on their own paths closed clean), plus endless packet-CQE
+  stream on reopen (chip wedged) ending in a crash/UEFI restart.
+  Cause: BNX2X_CL_ID was (pfid>>1)<<2 = vn<<2 = 0 for ALL FOUR rNDC
+  functions — but cl_id is also the QZONE id indexing the USTORM RX
+  producers in PER-PATH storm RAM (IRO[217] + qzone*0x20), so both
+  ports of a path clobbered each other's producers when open
+  simultaneously. Linux E2+ rule (bnx2x_fp_cl_id): "Client ID must
+  equal the IGU SB ID" (chip-wide unique). FIX: BNX2X_CL_ID =
+  igu_base_sb (pf0=1 etc.); stats query index updated to match.
+  Also added a runaway guard in wait_ramrod_cqe (max 2*RCQ_CNT
+  discards ⇒ -EIO) so a corrupt completion queue can no longer hang
+  iPXE until the UEFI watchdog restarts it. NOTE for retest: cl_id
+  change affects single-port operation too (pf0 now cl_id 1, not
+  0) — rerun the basic soak FIRST, then open-all/close-all, then
+  soak again. COLD BOOT required after the previous wedge.
+
 - **2026-07-20 (al)**: **RX quiesce validated (soak→smoke→cycle→soak
   passed); two new findings from all-6-ports-at-once testing.** (1)
   "unexpected CQE type 00" at HALT/TERMINATE on every port: packet

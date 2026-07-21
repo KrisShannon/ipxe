@@ -71,8 +71,14 @@ FILE_SECBOOT ( PERMITTED );
 #define BNX2X_TX_BD_CNT		256	/* 16-byte BDs; last 1 next-page */
 #define BNX2X_TX_BD_USABLE	( BNX2X_TX_BD_CNT - 1 )
 
-/** Client (function-relative) id: BP_L_ID = vn << 2 */
-#define BNX2X_CL_ID( bnx2x )	( ( (bnx2x)->pfid >> 1 ) << 2 )
+/** Client id.  On E2+ the client id must equal the IGU status block
+ * id (Linux bnx2x_fp_cl_id) so that it is unique chip-wide: the
+ * client id is also the queue-zone id indexing the USTORM RX
+ * producers in PER-PATH storm RAM, and the old vn-based formula
+ * collided between the two ports of a path when both were open
+ * (each port clobbered the other's producers, wedging RX teardown).
+ */
+#define BNX2X_CL_ID( bnx2x )	( (bnx2x)->igu_base_sb )
 
 /**
  * Advance an RX BD producer/consumer index, skipping next-page slots
@@ -294,6 +300,7 @@ static int bnx2x_wait_ramrod_cqe ( struct bnx2x_nic *bnx2x ) {
 	unsigned int hw_cons;
 	unsigned int slot;
 	unsigned int type;
+	unsigned int discarded = 0;
 	unsigned int i;
 
 	for ( i = 0 ; i < 5000 ; i++ ) {
@@ -315,9 +322,19 @@ static int bnx2x_wait_ramrod_cqe ( struct bnx2x_nic *bnx2x ) {
 				bnx2x_update_rx_prods ( bnx2x );
 				return 0;
 			}
-			/* Packet CQE: discard the packet and its buffer */
+			/* Packet CQE: discard the packet and its buffer.
+			 * Cap the total discards: an unending stream
+			 * means the completion queue state is corrupt
+			 * (observed on a wedged chip), and looping
+			 * forever here takes down the whole system.
+			 */
 			DBGC2 ( bnx2x, "BNX2X %p discarding CQE type %d "
 				"while awaiting ramrod\n", bnx2x, type );
+			if ( ++discarded > ( 2 * BNX2X_RCQ_CNT ) ) {
+				DBGC ( bnx2x, "BNX2X %p completion queue "
+				       "runaway\n", bnx2x );
+				return -EIO;
+			}
 			iobuf = bnx2x->rx_iobuf[bnx2x->rx_ring_tail %
 						BNX2X_RX_FILL];
 			bnx2x->rx_iobuf[bnx2x->rx_ring_tail %

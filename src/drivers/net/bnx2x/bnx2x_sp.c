@@ -462,7 +462,7 @@ void bnx2x_stats_query_dump ( struct bnx2x_nic *bnx2x ) {
 	uint32_t *port;
 	uint32_t *queue;
 	physaddr_t phys;
-	unsigned int cl_id = ( ( bnx2x->pfid >> 1 ) << 2 );
+	unsigned int cl_id = bnx2x->igu_base_sb;	/* = client id */
 	unsigned int i;
 
 	buf = malloc_phys ( BNX2X_PAGE_SIZE, BNX2X_PAGE_SIZE );
