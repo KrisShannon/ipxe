@@ -1,0 +1,85 @@
+#!ipxe
+vcreate --tag 602 net0
+vcreate --tag 602 net1
+vcreate --tag 602 net2
+vcreate --tag 602 net3
+vcreate --tag 4001 net4
+vcreate --tag 4002 net5
+:sh
+shell
+menu Tests
+item shell      Back to interactive iPXE Shell
+item vl602      Configure IPV6 over VLAN602 over LACP
+item vl4001     Configure DHCP over VLAN4001
+item cycletest  Run Cycle test (open/close net0 10 times)
+item smoketest  Run Smoke test (open/close all net0 through net6)
+item soakdhcp   Run DHCP Soak test (request DHCP 5 times closing between each)
+item soakipv6   Run IPv6 Soak test (request IPv6 5 times closing between each)
+choose target && goto ${target}
+
+:vl602
+ifopen net0
+sleep 4
+ifconf -c ipv6 net0-602 ||
+goto sh
+
+:vl4001
+ifopen net4
+ifconf -c dhcp net4-4001 ||
+goto sh
+
+:cycletest
+set n:int32 0
+:cycleloop
+echo === cycle ${n} ===
+ifopen net0 || goto cyclefail
+ifstat net0
+ifclose net0
+inc n
+iseq ${n} 10 || goto cycleloop
+echo PASSED 10 open/close cycles
+goto sh
+:cyclefail
+echo FAILED at cycle ${n}
+goto sh
+
+:smoketest
+set idx:int32 0
+:portloop
+ifopen net${idx} || goto smokefail
+ifstat net${idx}
+ifclose net${idx}
+inc idx
+iseq ${idx} 6 || goto portloop
+echo ALL PORTS PASSED
+goto sh
+:smokefail
+echo PORT net${idx} FAILED
+goto sh
+
+:soakdhcp
+set n:int32 0
+:soakdhcploop
+ifconf -c dhcp net4-4001 || goto soakdhcpfail
+ifclose net4
+inc n
+iseq ${n} 5 || goto soakdhcploop
+echo PASSED 5 tagged DHCP cycles
+goto sh
+:soakdhcpfail
+echo DHCP FAILED at cycle ${n}
+goto sh
+
+:soakipv6
+set n:int32 0
+:soakipv6loop
+ifconf -c ipv6 net0-602 || goto soakipv6fail
+ifclose net0
+inc n
+iseq ${n} 5 || goto soakipv6loop
+echo PASSED 5 tagged IPv6 cycles
+goto sh
+:soakipv6fail
+echo IPv6 FAILED at cycle ${n}
+goto sh
+
