@@ -21,13 +21,17 @@ establishment:
 
 Base: branch `bnx2x` of KrisShannon/ipxe (the cleaned native bnx2x
 driver branch — the driver this feature is intended to pair with;
-the feature itself is driver-agnostic).  Target usage:
+the feature itself is driver-agnostic).  Target usage (after
+`vcreate --tag 602 net0`) is a single line — no ifopen needed,
+since ifconf opens the VLAN device and vlan_open() opens the trunk,
+which starts the LACP responder:
 
 ```
-ifopen net0
-iflinkwait --lacp --timeout 30000 net0
-ifconf -c dhcp net0-602
+ifconf --lacp -c dhcp net0-602
 ```
+
+(`iflinkwait --lacp [--timeout <ms>]` remains available as the
+standalone building block.)
 
 ## Design notes
 
