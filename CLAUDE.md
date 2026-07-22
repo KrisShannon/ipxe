@@ -58,6 +58,22 @@ ifconf -c dhcp net0-602
 
 ## Status
 
+- **2026-07-22 (b)**: **HW-VALIDATED FIRST GO**: `time iflinkwait -l
+  net0-602` (debug `eth_slow` level 1 — NOTE from Kris: level 1 is
+  serial-safe, it was `:3` that flapped the bundle) released in
+  13.2s, right when the switch's LACPDU flipped to [AFGSCDlx]
+  (in-sync+collecting+distributing); the log shows the full 802.1AX
+  progression (partner defaulted/expired → learns us → bundles) and
+  the VLAN→trunk redirection working.  THEN added `ifconf --lacp`
+  (`-l`): waits via iflacpwait with new LACP_WAIT_TIMEOUT (60s;
+  plain link wait stays 15s, which would have missed the observed
+  13.2s) before configuring.  `ifconf()` gained an `int lacp` param
+  (callers updated: autoboot passes 0).  Target one-liner is now
+  `ifconf --lacp -c dhcp net0-602` after `ifopen net0` — wait +
+  configure in one command, no sleeps.  EFI+BIOS build; ifconf
+  --lacp not yet HW-tested (test: replaces the iflinkwait line;
+  also regression-check plain `ifconf -c dhcp net4-4001`).
+
 - **2026-07-22 (a)**: Feature implemented as above; EFI + BIOS builds
   pass.  NOT yet hardware-tested.  HW test plan (on the LACP trunk
   port, normal build — do NOT enable eth_slow debug over serial, it

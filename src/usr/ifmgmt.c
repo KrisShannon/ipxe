@@ -48,6 +48,16 @@ FILE_SECBOOT ( PERMITTED );
 /** Default time to wait for link-up */
 #define LINK_WAIT_TIMEOUT ( 15 * TICKS_PER_SEC )
 
+/** Default time to wait for LACP aggregation
+ *
+ * Aggregation requires the switch to run its LACP exchange and move
+ * the port into the aggregate after link-up, which is observed to
+ * take on the order of 15 seconds even with the fast (1 second)
+ * transmission interval, and could take considerably longer with the
+ * slow (30 second) interval.
+ */
+#define LACP_WAIT_TIMEOUT ( 60 * TICKS_PER_SEC )
+
 /** Default unsuccessful configuration status code */
 #define EADDRNOTAVAIL_CONFIG __einfo_error ( EINFO_EADDRNOTAVAIL_CONFIG )
 #define EINFO_EADDRNOTAVAIL_CONFIG					\
@@ -354,16 +364,24 @@ static int ifconf_progress ( struct ifpoller *ifpoller ) {
  * @v netdev		Network device
  * @v configurator	Network device configurator, or NULL to use all
  * @v timeout		Timeout period, in ticks
+ * @v lacp		Wait for LACP aggregation before configuring
  * @ret rc		Return status code
  */
 int ifconf ( struct net_device *netdev,
 	     struct net_device_configurator *configurator,
-	     unsigned long timeout ) {
+	     unsigned long timeout, int lacp ) {
 	int rc;
 
-	/* Ensure device is open and link is up */
-	if ( ( rc = iflinkwait ( netdev, LINK_WAIT_TIMEOUT, 0 ) ) != 0 )
-		return rc;
+	/* Ensure device is open and link is up (and, if applicable,
+	 * that LACP aggregation is established)
+	 */
+	if ( lacp ) {
+		if ( ( rc = iflacpwait ( netdev, LACP_WAIT_TIMEOUT ) ) != 0 )
+			return rc;
+	} else {
+		if ( ( rc = iflinkwait ( netdev, LINK_WAIT_TIMEOUT, 0 ) ) != 0 )
+			return rc;
+	}
 
 	/* Start configuration */
 	if ( configurator ) {

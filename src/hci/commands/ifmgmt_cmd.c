@@ -198,6 +198,8 @@ struct ifconf_options {
 	unsigned long timeout;
 	/** Configurator */
 	struct net_device_configurator *configurator;
+	/** Wait for LACP aggregation */
+	int lacp;
 };
 
 /** "ifconf" option list */
@@ -208,6 +210,8 @@ static struct option_descriptor ifconf_opts[] = {
 	OPTION_DESC ( "timeout", 't', required_argument,
 		      struct ifconf_options, timeout,
 		      parse_timeout ),
+	OPTION_DESC ( "lacp", 'l', no_argument,
+		      struct ifconf_options, lacp, parse_flag ),
 };
 
 /**
@@ -223,7 +227,7 @@ static int ifconf_payload ( struct net_device *netdev,
 
 	/* Attempt configuration */
 	if ( ( rc = ifconf ( netdev, opts->configurator,
-			     opts->timeout ) ) != 0 ) {
+			     opts->timeout, opts->lacp ) ) != 0 ) {
 
 		/* Close device on failure, to avoid memory exhaustion */
 		netdev_close ( netdev );
