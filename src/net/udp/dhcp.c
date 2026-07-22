@@ -243,6 +243,13 @@ struct dhcp_session {
 	struct retry_timer timer;
 	/** Transmission counter */
 	unsigned int count;
+	/** Most recently seen link block count
+	 *
+	 * Snapshot of the network device's link block count, used to
+	 * detect block episodes that start and clear entirely
+	 * between two retransmissions.
+	 */
+	unsigned int link_block_count;
 	/** Start time of the current state (in ticks) */
 	unsigned long start;
 };
@@ -450,19 +457,31 @@ static void dhcp_discovery_rx ( struct dhcp_session *dhcp,
  * Check for link blockage
  *
  * @v dhcp		DHCP session
- * @ret blocked	Link is blocked
+ * @ret blocked	Link is or has been blocked
  *
  * Link blocking (e.g. by a non-forwarding STP port or a
  * not-yet-aggregated LACP port) happens on the trunk device: when
  * configuring a VLAN device, check the trunk.
+ *
+ * Treat the link as blocked if it is currently blocked, or if it
+ * has been blocked at any point since the last check: a block may
+ * start and clear entirely within one retransmission interval (of
+ * up to eight seconds), and packets transmitted before and during
+ * the block will have been lost.
  */
 static int dhcp_link_blocked ( struct dhcp_session *dhcp ) {
 	struct net_device *netdev = dhcp->netdev;
 	struct net_device *trunk = vlan_trunk ( netdev );
+	unsigned int count;
+	int blocked;
 
 	if ( trunk )
 		netdev = trunk;
-	return netdev_link_blocked ( netdev );
+	count = netdev->link_block_count;
+	blocked = ( netdev_link_blocked ( netdev ) ||
+		    ( count != dhcp->link_block_count ) );
+	dhcp->link_block_count = count;
+	return blocked;
 }
 
 /**
@@ -1391,6 +1410,11 @@ int start_dhcp ( struct interface *job, struct net_device *netdev ) {
 	dhcp->local.sin_family = AF_INET;
 	dhcp->local.sin_port = htons ( BOOTPC_PORT );
 	dhcp->xid = random();
+
+	/* Take an initial link block snapshot, so that only blocks
+	 * occurring after this point defer discovery
+	 */
+	dhcp_link_blocked ( dhcp );
 
 	/* Store DHCP transaction ID for fakedhcp code */
 	dhcp_last_xid = dhcp->xid;

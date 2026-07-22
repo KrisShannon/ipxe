@@ -1103,6 +1103,13 @@ struct ipv6conf {
 
 	/** Deferred discovery counter */
 	unsigned int deferred;
+	/** Most recently seen link block count
+	 *
+	 * Snapshot of the network device's link block count, used to
+	 * detect block episodes that start and clear entirely
+	 * between two retransmissions.
+	 */
+	unsigned int link_block_count;
 };
 
 /** List of IPv6 configurators */
@@ -1161,19 +1168,31 @@ static void ipv6conf_done ( struct ipv6conf *ipv6conf, int rc ) {
  * Check for link blockage
  *
  * @v ipv6conf		IPv6 configurator
- * @ret blocked		Link is blocked
+ * @ret blocked		Link is or has been blocked
  *
  * Link blocking (e.g. by a non-forwarding STP port or a
  * not-yet-aggregated LACP port) happens on the trunk device: when
  * configuring a VLAN device, check the trunk.
+ *
+ * Treat the link as blocked if it is currently blocked, or if it
+ * has been blocked at any point since the last check: a block may
+ * start and clear entirely within one retransmission interval, and
+ * packets transmitted before and during the block will have been
+ * lost.
  */
 static int ipv6conf_link_blocked ( struct ipv6conf *ipv6conf ) {
 	struct net_device *netdev = ipv6conf->netdev;
 	struct net_device *trunk = vlan_trunk ( netdev );
+	unsigned int count;
+	int blocked;
 
 	if ( trunk )
 		netdev = trunk;
-	return netdev_link_blocked ( netdev );
+	count = netdev->link_block_count;
+	blocked = ( netdev_link_blocked ( netdev ) ||
+		    ( count != ipv6conf->link_block_count ) );
+	ipv6conf->link_block_count = count;
+	return blocked;
 }
 
 /**
@@ -1308,6 +1327,11 @@ int start_ipv6conf ( struct interface *job, struct net_device *netdev ) {
 	set_timer_limits ( &ipv6conf->timer, IPV6CONF_MIN_TIMEOUT,
 			   IPV6CONF_MAX_TIMEOUT );
 	ipv6conf->netdev = netdev_get ( netdev );
+
+	/* Take an initial link block snapshot, so that only blocks
+	 * occurring after this point defer discovery
+	 */
+	ipv6conf_link_blocked ( ipv6conf );
 
 	/* Start timer to initiate router solicitation */
 	start_timer_nodelay ( &ipv6conf->timer );
