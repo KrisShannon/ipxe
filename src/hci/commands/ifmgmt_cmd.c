@@ -255,12 +255,16 @@ int ifconf_exec ( int argc, char **argv ) {
 struct iflinkwait_options {
 	/** Link timeout */
 	unsigned long timeout;
+	/** Wait for LACP aggregation */
+	int lacp;
 };
 
 /** "iflinkwait" option list */
 static struct option_descriptor iflinkwait_opts[] = {
 	OPTION_DESC ( "timeout", 't', required_argument,
 		      struct iflinkwait_options, timeout, parse_timeout ),
+	OPTION_DESC ( "lacp", 'l', no_argument,
+		      struct iflinkwait_options, lacp, parse_flag ),
 };
 
 /**
@@ -274,8 +278,10 @@ static int iflinkwait_payload ( struct net_device *netdev,
 				struct iflinkwait_options *opts ) {
 	int rc;
 
-	/* Wait for link-up */
-	if ( ( rc = iflinkwait ( netdev, opts->timeout, 1 ) ) != 0 ) {
+	/* Wait for link-up (and LACP aggregation, if applicable) */
+	rc = ( opts->lacp ? iflacpwait ( netdev, opts->timeout ) :
+	       iflinkwait ( netdev, opts->timeout, 1 ) );
+	if ( rc != 0 ) {
 
 		/* Close device on failure, to avoid memory exhaustion */
 		netdev_close ( netdev );

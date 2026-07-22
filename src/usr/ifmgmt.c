@@ -35,6 +35,8 @@ FILE_SECBOOT ( PERMITTED );
 #include <ipxe/monojob.h>
 #include <ipxe/timer.h>
 #include <ipxe/errortab.h>
+#include <ipxe/eth_slow.h>
+#include <ipxe/vlan.h>
 #include <usr/ifmgmt.h>
 
 /** @file
@@ -52,9 +54,16 @@ FILE_SECBOOT ( PERMITTED );
 	__einfo_uniqify ( EINFO_EADDRNOTAVAIL, 0x01,			\
 			  "No configuration methods succeeded" )
 
+/** LACP aggregation not established status code */
+#define ENOTCONN_LACP __einfo_error ( EINFO_ENOTCONN_LACP )
+#define EINFO_ENOTCONN_LACP					\
+	__einfo_uniqify ( EINFO_ENOTCONN, 0x02,			\
+			  "No LACP aggregation" )
+
 /** Human-readable error message */
 struct errortab ifmgmt_errors[] __errortab = {
 	__einfo_errortab ( EINFO_EADDRNOTAVAIL_CONFIG ),
+	__einfo_errortab ( EINFO_ENOTCONN_LACP ),
 };
 
 /**
@@ -233,6 +242,81 @@ int iflinkwait ( struct net_device *netdev, unsigned long timeout,
 	/* Wait for link-up */
 	printf ( "Waiting for link-up on %s", netdev->name );
 	return ifpoller_wait ( netdev, NULL, timeout, iflinkwait_progress );
+}
+
+/**
+ * Check LACP aggregation progress
+ *
+ * @v ifpoller		Network device poller
+ * @ret ongoing_rc	Ongoing job status code (if known)
+ *
+ * The wait terminates successfully once the link is up and the link
+ * partner's most recent LACP packet (as recorded by the slow
+ * protocols responder) is current and reports the partner as being
+ * in sync, collecting, and distributing - i.e. once traffic sent on
+ * this port can be expected to actually pass through the aggregated
+ * link.
+ */
+static int iflacpwait_progress ( struct ifpoller *ifpoller ) {
+	struct net_device *netdev = ifpoller->netdev;
+	struct net_device *trunk;
+	unsigned int state;
+	unsigned long max_age;
+
+	/* LACP runs on the trunk device: allow waiting on a VLAN
+	 * device to transparently wait on its trunk
+	 */
+	trunk = vlan_trunk ( netdev );
+	if ( trunk )
+		netdev = trunk;
+	state = netdev->lacp_state;
+
+	/* Wait for link-up first */
+	if ( netdev->link_rc != 0 )
+		return netdev->link_rc;
+
+	/* Wait until an LACP packet has been received */
+	if ( ! ( state & NETDEV_LACP_VALID ) )
+		return -ENOTCONN_LACP;
+
+	/* Wait until the partner reports itself in sync, collecting,
+	 * and distributing
+	 */
+	if ( ~state & ( LACP_STATE_IN_SYNC | LACP_STATE_COLLECTING |
+			LACP_STATE_DISTRIBUTING ) )
+		return -ENOTCONN_LACP;
+
+	/* Disregard stale information: LACP information times out
+	 * after three times the requested transmission interval
+	 */
+	max_age = ( ( ( state & LACP_STATE_FAST ) ?
+		      LACP_INTERVAL_FAST : LACP_INTERVAL_SLOW ) *
+		    3 * TICKS_PER_SEC );
+	if ( ( currticks() - netdev->lacp_time ) > max_age )
+		return -ENOTCONN_LACP;
+
+	/* Terminate successfully */
+	intf_close ( &ifpoller->job, 0 );
+	return 0;
+}
+
+/**
+ * Wait for LACP aggregation, with status indication
+ *
+ * @v netdev		Network device
+ * @v timeout		Timeout period, in ticks
+ * @ret rc		Return status code
+ */
+int iflacpwait ( struct net_device *netdev, unsigned long timeout ) {
+	int rc;
+
+	/* Ensure device is open */
+	if ( ( rc = ifopen ( netdev ) ) != 0 )
+		return rc;
+
+	/* Wait for LACP aggregation to be established */
+	printf ( "Waiting for LACP aggregation on %s", netdev->name );
+	return ifpoller_wait ( netdev, NULL, timeout, iflacpwait_progress );
 }
 
 /**
