@@ -34,6 +34,7 @@ FILE_SECBOOT ( PERMITTED );
 #include <ipxe/if_ether.h>
 #include <ipxe/iobuf.h>
 #include <ipxe/netdevice.h>
+#include <ipxe/vlan.h>
 #include <ipxe/device.h>
 #include <ipxe/xfer.h>
 #include <ipxe/open.h>
@@ -446,6 +447,25 @@ static void dhcp_discovery_rx ( struct dhcp_session *dhcp,
 }
 
 /**
+ * Check for link blockage
+ *
+ * @v dhcp		DHCP session
+ * @ret blocked	Link is blocked
+ *
+ * Link blocking (e.g. by a non-forwarding STP port or a
+ * not-yet-aggregated LACP port) happens on the trunk device: when
+ * configuring a VLAN device, check the trunk.
+ */
+static int dhcp_link_blocked ( struct dhcp_session *dhcp ) {
+	struct net_device *netdev = dhcp->netdev;
+	struct net_device *trunk = vlan_trunk ( netdev );
+
+	if ( trunk )
+		netdev = trunk;
+	return netdev_link_blocked ( netdev );
+}
+
+/**
  * Defer DHCP discovery
  *
  * @v dhcp		DHCP session
@@ -484,7 +504,7 @@ static void dhcp_discovery_expired ( struct dhcp_session *dhcp ) {
 	dhcp_tx ( dhcp );
 
 	/* If link is blocked, defer DHCP discovery timeout */
-	if ( netdev_link_blocked ( dhcp->netdev ) )
+	if ( dhcp_link_blocked ( dhcp ) )
 	     dhcp_defer ( dhcp );
 }
 

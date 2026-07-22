@@ -33,6 +33,7 @@ FILE_SECBOOT ( PERMITTED );
 #include <ipxe/neighbour.h>
 #include <ipxe/dhcpv6.h>
 #include <ipxe/timer.h>
+#include <ipxe/vlan.h>
 #include <ipxe/ndp.h>
 
 /** @file
@@ -1157,6 +1158,25 @@ static void ipv6conf_done ( struct ipv6conf *ipv6conf, int rc ) {
 }
 
 /**
+ * Check for link blockage
+ *
+ * @v ipv6conf		IPv6 configurator
+ * @ret blocked		Link is blocked
+ *
+ * Link blocking (e.g. by a non-forwarding STP port or a
+ * not-yet-aggregated LACP port) happens on the trunk device: when
+ * configuring a VLAN device, check the trunk.
+ */
+static int ipv6conf_link_blocked ( struct ipv6conf *ipv6conf ) {
+	struct net_device *netdev = ipv6conf->netdev;
+	struct net_device *trunk = vlan_trunk ( netdev );
+
+	if ( trunk )
+		netdev = trunk;
+	return netdev_link_blocked ( netdev );
+}
+
+/**
  * Handle IPv6 configurator timer expiry
  *
  * @v timer		Retry timer
@@ -1178,7 +1198,7 @@ static void ipv6conf_expired ( struct retry_timer *timer, int fail ) {
 	ndp_tx_router_solicitation ( netdev );
 
 	/* If link is blocked, defer router discovery timeout */
-	if ( netdev_link_blocked ( netdev ) &&
+	if ( ipv6conf_link_blocked ( ipv6conf ) &&
 	     ( ipv6conf->deferred++ <= IPV6CONF_MAX_DEFERRALS ) ) {
 		DBGC ( netdev, "NDP %s deferring discovery timeout\n",
 		       netdev->name );
