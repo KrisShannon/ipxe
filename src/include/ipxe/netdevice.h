@@ -402,6 +402,17 @@ struct net_device {
 	int link_rc;
 	/** Link block timer */
 	struct retry_timer link_block;
+	/** Link block count
+	 *
+	 * This counts the number of times that the link has become
+	 * blocked, and is never reset for the lifetime of the
+	 * device.  Consumers that sample the blocked state only
+	 * periodically (such as the configuration retransmission
+	 * timers) can compare snapshots of this counter to detect a
+	 * block that both started and cleared entirely between two
+	 * samples.
+	 */
+	unsigned int link_block_count;
 	/** Link partner LACP state
 	 *
 	 * This is the LACP actor state most recently reported by the

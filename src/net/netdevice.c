@@ -249,10 +249,13 @@ void netdev_link_down ( struct net_device *netdev ) {
  */
 void netdev_link_block ( struct net_device *netdev, unsigned long timeout ) {
 
-	/* Start link block timer */
+	/* Start link block timer, counting each new block episode
+	 * (but not each extension of an existing block)
+	 */
 	if ( ! netdev_link_blocked ( netdev ) ) {
 		DBGC ( netdev, "NETDEV %s link blocked for %ld ticks\n",
 		       netdev->name, timeout );
+		netdev->link_block_count++;
 	}
 	start_timer_fixed ( &netdev->link_block, timeout );
 }
