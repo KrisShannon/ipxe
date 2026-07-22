@@ -167,6 +167,12 @@ static int eth_slow_lacp_rx ( struct io_buffer *iobuf,
 		return -ELOOP;
 	}
 
+	/* Record the partner's reported state (and the time at which
+	 * it was received), for consumers such as "iflinkwait --lacp"
+	 */
+	netdev->lacp_state = ( NETDEV_LACP_VALID | lacp->actor.state );
+	netdev->lacp_time = currticks();
+
 	/* If partner is not in sync, collecting, and distributing,
 	 * then block the link until after the next expected LACP
 	 * packet.

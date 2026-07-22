@@ -402,6 +402,20 @@ struct net_device {
 	int link_rc;
 	/** Link block timer */
 	struct retry_timer link_block;
+	/** Link partner LACP state
+	 *
+	 * This is the LACP actor state most recently reported by the
+	 * link partner (ORed with the NETDEV_LACP_VALID flag), or
+	 * zero if no LACP packet has been received since the device
+	 * was opened or since the link last went down.
+	 */
+	unsigned int lacp_state;
+	/** Time of most recent LACP packet reception
+	 *
+	 * Valid only if the NETDEV_LACP_VALID flag is set within
+	 * @c lacp_state.
+	 */
+	unsigned long lacp_time;
 	/** Maximum packet length
 	 *
 	 * This is the maximum packet length (including any link-layer
@@ -463,6 +477,14 @@ struct net_device {
 
 /** Network device should be opened automatically */
 #define NETDEV_AUTO_OPEN 0x0080
+
+/** Link partner LACP state is valid
+ *
+ * This flag is set within @c lacp_state alongside the received LACP
+ * state bits (which occupy only the low eight bits) to distinguish
+ * "no LACP packet received" from a received all-zero LACP state.
+ */
+#define NETDEV_LACP_VALID 0x100
 
 /** Link-layer protocol table */
 #define LL_PROTOCOLS __table ( struct ll_protocol, "ll_protocols" )

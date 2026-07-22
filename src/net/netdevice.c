@@ -217,6 +217,8 @@ void netdev_link_err ( struct net_device *netdev, int rc ) {
 	} else {
 		DBGC ( netdev, "NETDEV %s link is down: %s\n",
 		       netdev->name, strerror ( netdev->link_rc ) );
+		/* Any recorded link partner LACP state is now stale */
+		netdev->lacp_state = 0;
 	}
 
 	/* Notify drivers of link state change */
@@ -931,6 +933,9 @@ void netdev_close ( struct net_device *netdev ) {
 	/* Stop link block timer */
 	stop_timer ( &netdev->link_block );
 
+	/* Discard any recorded link partner LACP state */
+	netdev->lacp_state = 0;
+
 	/* Flush TX and RX queues */
 	netdev_tx_flush ( netdev );
 	netdev_rx_flush ( netdev );
@@ -1202,6 +1207,16 @@ static void net_step ( struct process *process __unused ) {
  */
 __weak unsigned int vlan_tci ( struct net_device *netdev __unused ) {
 	return 0;
+}
+
+/**
+ * Identify VLAN trunk device (when VLAN support is not present)
+ *
+ * @v netdev		Network device
+ * @ret trunk		NULL, indicating that device is not a VLAN device
+ */
+__weak struct net_device * vlan_trunk ( struct net_device *netdev __unused ) {
+	return NULL;
 }
 
 /**
