@@ -62,6 +62,32 @@ standalone building block.)
 
 ## Status
 
+- **2026-07-22 (c)**: **Blocked-link deferral fixes (Kris's analysis
+  of the upstream gaps), three commits**: (1) DHCP + IPv6-RS
+  deferral checks now consult the TRUNK via vlan_trunk() when
+  configuring a VLAN device — previously the VLAN dev was never
+  marked blocked, so the entire deferral mechanism (built for
+  STP/LACP!) was inert on VLAN-over-LACP, which is why the old
+  sleep-20 was needed despite upstream having this logic. (2) New
+  `link_block_count` on net_device: counts unblocked→blocked
+  transitions, NEVER reset (decision: snapshot-comparison semantics
+  make the absolute value irrelevant, and resetting could hide
+  episodes from stale snapshots). (3) dhcp.c + ndp.c compare
+  snapshots at each expiry — catches Kris's edge-sampled gap where
+  a block starts AND clears between two expiries (e.g. first LACPDU
+  at t=9 into the 8s wait, converged by t=12, session would have
+  died at t=15 with fail=1 having never seen the block); snapshot
+  taken at session start. Audit of remaining netdev_link_blocked
+  callers: stp/eth_slow are blockers, ifstat display-only,
+  netdevice.c internal — no other consumers. NOT HW-tested; NB
+  deferral only exists in the DISCOVERY state (a block starting
+  mid-REQUEST still just times out — known remaining gap, upstream
+  discussion material). Test idea: DHCP (not --lacp) on net0-602
+  right after ifopen on a slow-LACP-configured port; with debug
+  `netdevice`+`dhcp` expect "deferring discovery" once the first
+  partner-down LACPDU lands, and eventual success instead of the
+  historical 15s death.
+
 - **2026-07-22 (b)**: **HW-VALIDATED FIRST GO**: `time iflinkwait -l
   net0-602` (debug `eth_slow` level 1 — NOTE from Kris: level 1 is
   serial-safe, it was `:3` that flapped the bundle) released in
