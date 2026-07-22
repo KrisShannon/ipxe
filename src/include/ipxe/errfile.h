@@ -246,6 +246,11 @@ FILE_SECBOOT ( PERMITTED );
 #define ERRFILE_dwmac		     ( ERRFILE_DRIVER | 0x00dc0000 )
 #define ERRFILE_dwusb		     ( ERRFILE_DRIVER | 0x00dd0000 )
 #define ERRFILE_dwgpio		     ( ERRFILE_DRIVER | 0x00de0000 )
+#define ERRFILE_bnx2x		     ( ERRFILE_DRIVER | 0x00df0000 )
+#define ERRFILE_bnx2x_init	     ( ERRFILE_DRIVER | 0x00e00000 )
+#define ERRFILE_bnx2x_hw	     ( ERRFILE_DRIVER | 0x00e10000 )
+#define ERRFILE_bnx2x_sp	     ( ERRFILE_DRIVER | 0x00e20000 )
+#define ERRFILE_bnx2x_eth	     ( ERRFILE_DRIVER | 0x00e30000 )
 
 #define ERRFILE_aoe			( ERRFILE_NET | 0x00000000 )
 #define ERRFILE_arp			( ERRFILE_NET | 0x00010000 )
