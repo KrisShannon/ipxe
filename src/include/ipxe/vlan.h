@@ -75,6 +75,7 @@ vlan_tag ( struct net_device *netdev ) {
 	return VLAN_TAG ( vlan_tci ( netdev ) );
 }
 
+extern struct net_device * vlan_trunk ( struct net_device *netdev );
 extern struct net_device * vlan_find ( struct net_device *trunk,
 				       unsigned int tag );
 extern int vlan_can_be_trunk ( struct net_device *trunk );

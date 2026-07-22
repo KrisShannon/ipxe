@@ -311,6 +311,23 @@ unsigned int vlan_tci ( struct net_device *netdev ) {
 }
 
 /**
+ * Identify VLAN trunk device
+ *
+ * @v netdev		Network device
+ * @ret trunk		Trunk network device, or NULL if not a VLAN device
+ */
+struct net_device * vlan_trunk ( struct net_device *netdev ) {
+	struct vlan_device *vlan;
+
+	if ( netdev->op == &vlan_operations ) {
+		vlan = netdev->priv;
+		return vlan->trunk;
+	} else {
+		return NULL;
+	}
+}
+
+/**
  * Check if network device can be used as a VLAN trunk device
  *
  * @v trunk		Trunk network device
