@@ -10,6 +10,9 @@
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 FILE_SECBOOT ( PERMITTED );
 
+#include <stdint.h>
+#include <ipxe/if_ether.h>
+
 /** Slow protocols header */
 struct eth_slow_header {
 	/** Slow protocols subtype */
