@@ -212,13 +212,13 @@ static void resmux_child_close ( struct resolv_mux *mux, int rc ) {
 	}
 
 	/* Attempt next child resolver, if possible */
-	mux->resolver++;
-	if ( mux->resolver >= table_end ( RESOLVERS ) ) {
-		DBGC ( mux, "RESOLV %p failed to resolve name\n", mux );
-		goto finished;
-	}
-	if ( ( rc = resmux_try ( mux ) ) != 0 )
-		goto finished;
+	do {
+		mux->resolver++;
+		if ( mux->resolver >= table_end ( RESOLVERS ) ) {
+			DBGC ( mux, "RESOLV %p failed to resolve name\n", mux );
+			goto finished;
+		}
+	} while ( ( rc = resmux_try ( mux ) ) != 0 );
 
 	/* Next resolver is now running */
 	return;
@@ -275,12 +275,15 @@ int resolv ( struct interface *resolv, const char *name,
 
 	DBGC ( mux, "RESOLV %p attempting to resolve \"%s\"\n", mux, name );
 
-	/* Start first resolver in chain.  There will always be at
-	 * least one resolver (the numeric resolver), so no need to
-	 * check for the zero-resolvers-available case.
+	/* Start first usable resolver in chain.  There will always
+	 * be at least one resolver (the numeric resolver), so no need
+	 * to check for the zero-resolvers-available case.
 	 */
-	if ( ( rc = resmux_try ( mux ) ) != 0 )
-		goto err;
+	while ( ( rc = resmux_try ( mux ) ) != 0 ) {
+		mux->resolver++;
+		if ( mux->resolver >= table_end ( RESOLVERS ) )
+			goto err;
+	}
 
 	/* Attach parent interface, mortalise self, and return */
 	intf_plug_plug ( &mux->parent, resolv );
