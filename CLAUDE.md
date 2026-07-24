@@ -132,6 +132,12 @@ PERMITTED )` as for dns.c.
 
 ## Status
 
+- **2026-07-24 (c)**: Commit 1 done: name codec moved verbatim from
+  dns.c to new `src/net/dnsname.c` (plus `ERRFILE_dnsname` in
+  `errfile.h` — iPXE requires a per-file error identifier; forgetting
+  it fails the build with `missing_errfile_declaration`).  Verified:
+  EFI build OK, `tests.linux` passes (`dns` 86/86).  Next: commit 2
+  (mdns.c resolver itself).
 - **2026-07-24 (b)**: Design written (one-shot legacy mDNS querier per
   RFC 6762 §5.1/§6.7; new resolver at order 015; dnsname.c codec
   split; `MDNS_RESOLVER` build option).  No code yet — next step is
