@@ -132,11 +132,21 @@ PERMITTED )` as for dns.c.
   the full flow.  Verified 2026-07-24: A record, AAAA record (via
   qtype alternation), cache-flush bit masking, timeout fall-through
   to DNS, and instant decline of non-.local names.
-- Manual on real network: qemu guest on a bridged/tap network with
-  `avahi-daemon` on the host; in iPXE: `dhcp`, then `nslookup addr
-  somehost.local` and `show addr`, plus a full `chain
-  http://somehost.local/...` fetch.  Test with IPv4-only, IPv6-only,
-  and dual-stack builds.
+- Against real avahi (also no qemu): `apt-get install avahi-daemon`,
+  `ip tuntap add avahitap0 mode tap` + `ip addr add 192.168.77.1/24`
+  + `ip link set up`, configure `/etc/avahi/avahi-daemon.conf` with
+  `host-name=testhost`, `allow-interfaces=avahitap0`,
+  `enable-dbus=no`, run `avahi-daemon --no-drop-root --daemonize`,
+  then run the embedded-script `tap.linux` with
+  `--net tap,if=avahitap0`.  avahi answers the one-shot query ~120µs
+  after it is sent (unicast from :5353, ID and question echoed,
+  1 answer).  Container caveat: this sandbox's kernel has IPv6
+  disabled (avahi logs "Failed to create IPv6 socket"), so IPv6
+  transport was verified with the Python responder instead
+  (hand-built IPv6 legacy unicast response incl. mandatory UDPv6
+  checksum), with iPXE running IPv6-only (no IPv4 configured).
+- Still outstanding on real hardware/qemu: `dhcp`-driven config and
+  a host-kernel-IPv6 network with dual-stack avahi.
 
 ### Future work (explicit non-goals for phase 1)
 
@@ -154,6 +164,25 @@ PERMITTED )` as for dns.c.
 
 ## Status
 
+- **2026-07-24 (e)**: Commit 3 (avahi interop testing) done — **no
+  code changes needed**; everything passed against real avahi 0.8:
+  basic A resolution (answered on the *first* one-shot query),
+  full `chain http://testhost.local:8080/...` HTTP fetch (CHAINOK,
+  port preserved through resolv_done), uppercase `TESTHOST.LOCAL`,
+  trailing-dot `testhost.local.`, nonexistent-name clean failure
+  (3 sends, ~7s, falls through to DNS).  Wire capture confirms
+  textbook RFC 6762 §6.7 behaviour: query QM from ephemeral port on
+  both transports; avahi replies unicast from :5353 with ID+question
+  echoed.  IPv6: container kernel has IPv6 *disabled* (avahi can't
+  even open an IPv6 socket) — iPXE's ff02::fb queries were verified
+  well-formed on the wire (tcpdump parses them, udp sum ok), and the
+  IPv6 RX path was verified with the layer-2 Python responder:
+  A-over-IPv6 and AAAA-over-IPv6 (alternation) both resolve with
+  iPXE running IPv6-only.  IPv4-unconfigured runtime degrades
+  gracefully ("Network unreachable" per family, retries continue).
+  Remaining for real hardware: dhcp-driven flow, kernel-IPv6
+  dual-stack avahi.  Test artefacts (responder.py harness) live in
+  the session scratchpad; the method is documented under Testing.
 - **2026-07-24 (d)**: Commit 2 done (plus a prep commit).  Two
   design corrections discovered en route, both folded back into the
   design notes above: (1) the resolver mux aborted the whole
