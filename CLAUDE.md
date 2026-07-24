@@ -48,17 +48,29 @@ succeeds.  Current entries: `NUMERIC` at order `01`, `DNS` at
   fall through to DNS at zero cost.  Conversely, if mDNS fails on a
   `.local` name, the mux still falls through to unicast DNS as a
   pragmatic fallback.
+- **Prerequisite mux fix**: the resolver mux used to abort the whole
+  resolution when a resolver's `resolv()` method failed
+  *synchronously* (only async failures advanced to the next entry;
+  NUMERIC dodges this by reporting failure via a one-shot process).
+  Fixed in `resolv.c` to advance to the next resolver instead, so
+  `mdns_resolv()` can decline synchronously without the
+  process-deferral boilerplate.
 
 ### New module: `src/net/udp/mdns.c`
 
 Modelled directly on `src/net/udp/dns.c`, but much simpler (no
 nameserver list, no search list, no recursion-desired):
 
-- **Socket**: `xfer_open_socket()` / UDP to peer 224.0.0.251:5353
-  (AF_INET) or ff02::fb:5353 (AF_INET6, when IPv6 is compiled in),
-  ephemeral local port.  `sin_scope_id`/`sin6_scope_id` left at 0,
-  which routes via the first open netdev — fine for the typical
-  single-NIC boot case (see Future work).
+- **Socket**: `xfer_open_socket()` / UDP with NULL peer (like
+  dns.c), ephemeral local port.  Each transmission sends the query
+  via `meta.dest` to 224.0.0.251:5353 (AF_INET) and ff02::fb:5353
+  (AF_INET6), on *every open netdev*.  **Important discovery**:
+  multicast routing (`ipv4_route()`) matches the destination's scope
+  ID against `netdev->scope_id`, and scope 0 matches nothing — the
+  scope ID (`st_scope_id`) MUST be set explicitly per netdev.  Since
+  a netdev walk is thus mandatory anyway, querying all open netdevs
+  costs nothing extra.  Transmission via an unconfigured address
+  family fails harmlessly (send succeeds if any tx worked).
 - **Query**: standard DNS wire format; reuse the RFC 1035 name codec
   from dns.c (`dns_encode()` etc, prototyped in `include/ipxe/dns.h`).
   Random non-zero ID (legacy queries use and check real IDs, unlike
@@ -110,14 +122,24 @@ PERMITTED )` as for dns.c.
 - Unit: existing `tests/dns_test.c` exercises the (relocated) name
   codec; add an `mdns_test.c` only if response-parsing helpers grow
   beyond what dns.c already covers.
-- Manual: qemu guest on a bridged/tap network with `avahi-daemon` on
-  the host; in iPXE: `dhcp`, then `nslookup addr somehost.local` and
-  `show addr`, plus a full `chain http://somehost.local/...` fetch.
-  Test with IPv4-only, IPv6-only, and dual-stack builds.
+- End-to-end (no qemu needed): build the userspace binary
+  `bin-x86_64-linux/tap.linux` with `EMBED=<script>` (script does
+  `ifopen net0` / static `set net0/ip` / `nslookup addr
+  testhost.local`) and `#define NSLOOKUP_CMD` in
+  `config/local/general.h`; run it against a Python AF_PACKET
+  responder on a persistent tap device which answers the one-shot
+  query with a legacy unicast response.  `DEBUG=mdns,resolv` shows
+  the full flow.  Verified 2026-07-24: A record, AAAA record (via
+  qtype alternation), cache-flush bit masking, timeout fall-through
+  to DNS, and instant decline of non-.local names.
+- Manual on real network: qemu guest on a bridged/tap network with
+  `avahi-daemon` on the host; in iPXE: `dhcp`, then `nslookup addr
+  somehost.local` and `show addr`, plus a full `chain
+  http://somehost.local/...` fetch.  Test with IPv4-only, IPv6-only,
+  and dual-stack builds.
 
 ### Future work (explicit non-goals for phase 1)
 
-- Querying on all open netdevs (currently first-netdev via scope 0).
 - Continuous-mode mDNS (bind :5353, join group, cache, cache-flush
   handling) — would need netdev multicast join support.
 - DNS-SD service discovery (PTR/SRV/TXT, e.g. `_https._tcp.local`)
@@ -132,6 +154,25 @@ PERMITTED )` as for dns.c.
 
 ## Status
 
+- **2026-07-24 (d)**: Commit 2 done (plus a prep commit).  Two
+  design corrections discovered en route, both folded back into the
+  design notes above: (1) the resolver mux aborted the whole
+  resolution on a *synchronous* resolver failure — fixed in
+  `core/resolv.c` (own commit) so mDNS can decline non-.local names
+  cheaply; (2) multicast tx requires an explicit scope ID
+  (`ipv4_route()` matches `netdev->scope_id`, scope 0 matches
+  nothing), so mdns.c sends on every open netdev, which also
+  removed the single-NIC limitation from the future-work list.
+  Implementation details: qtype alternates A/AAAA across
+  retransmissions (accepts either answer type) to cover IPv4-only
+  and IPv6-only responders without probing the local stack; timer
+  min 1s / max 4s gives 3 sends (t=0,1s,3s), gives up ~7s.  Verified
+  end-to-end with a tap + Python-responder harness (see Testing):
+  A, AAAA, cache-flush masking, timeout fall-through, non-.local
+  instant decline all pass; EFI build OK; `tests.linux` all pass.
+  Next: commit 3 follow-ups — real-network avahi testing (qemu),
+  IPv6-only/dual-stack builds, and consider whether `.local` should
+  also skip the DNS fallback.
 - **2026-07-24 (c)**: Commit 1 done: name codec moved verbatim from
   dns.c to new `src/net/dnsname.c` (plus `ERRFILE_dnsname` in
   `errfile.h` — iPXE requires a per-file error identifier; forgetting

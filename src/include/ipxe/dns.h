@@ -78,6 +78,9 @@ struct dns_header {
 	uint16_t arcount;
 } __attribute__ (( packed ));
 
+/** Query/response flag */
+#define DNS_FLAG_QR 0x8000
+
 /** Recursion desired flag */
 #define DNS_FLAG_RD 0x0100
 

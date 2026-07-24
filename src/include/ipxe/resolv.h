@@ -33,6 +33,13 @@ struct resolver {
 /** Numeric resolver priority */
 #define RESOLV_NUMERIC 01
 
+/** Multicast DNS resolver priority
+ *
+ * This is tried before the normal DNS resolver, and declines any
+ * name outside of the ".local" mDNS domain.
+ */
+#define RESOLV_MDNS 015
+
 /** Normal resolver priority */
 #define RESOLV_NORMAL 02
 

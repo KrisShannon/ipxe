@@ -328,6 +328,7 @@ FILE_SECBOOT ( PERMITTED );
 #define ERRFILE_eap_mschapv2		( ERRFILE_NET | 0x004e0000 )
 #define ERRFILE_syslogs			( ERRFILE_NET | 0x004f0000 )
 #define ERRFILE_dnsname			( ERRFILE_NET | 0x00500000 )
+#define ERRFILE_mdns			( ERRFILE_NET | 0x00510000 )
 
 #define ERRFILE_image		      ( ERRFILE_IMAGE | 0x00000000 )
 #define ERRFILE_elf		      ( ERRFILE_IMAGE | 0x00010000 )

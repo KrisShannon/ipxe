@@ -252,6 +252,7 @@ FILE_SECBOOT ( PERMITTED );
  */
 
 #define DNS_RESOLVER		/* DNS resolver */
+#define MDNS_RESOLVER		/* Multicast DNS resolver */
 
 /*****************************************************************************
  *

@@ -152,6 +152,9 @@ REQUIRE_OBJECT ( httpblock );
 #ifdef DNS_RESOLVER
 REQUIRE_OBJECT ( dns );
 #endif
+#ifdef MDNS_RESOLVER
+REQUIRE_OBJECT ( mdns );
+#endif
 
 /*
  * Drag in all requested image formats
